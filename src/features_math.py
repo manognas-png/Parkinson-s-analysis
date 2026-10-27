@@ -62,6 +62,14 @@ def n_components_for_energy(s, target=0.9):
     return int(np.searchsorted(cumulative, target) + 1)
 
 
+def effective_n_modes(s):
+    """1 / sum(energy fraction^2): 1 if one mode holds everything, 16 if all are equal.
+
+    A continuous alternative to counting modes up to a fixed energy threshold.
+    """
+    return 1 / np.sum(energy_fractions(s) ** 2)
+
+
 def fix_signs(U, reference=None):
     """Choose a sign for each column of U (SVD signs are arbitrary).
 
@@ -79,9 +87,11 @@ def fix_signs(U, reference=None):
 
 
 def svd_features(trial, target=0.9, standardize=False):
-    """Two summary numbers for one trial: modes for `target` energy, energy in mode 1."""
+    """Summary numbers for one trial: modes for `target` energy, energy in mode 1,
+    effective number of modes."""
     _, s, _ = svd(preprocess(sensor_matrix(trial), standardize))
     return {
         "n_components_90": n_components_for_energy(s, target),
         "energy_mode1": energy_fractions(s)[0],
+        "effective_n_modes": effective_n_modes(s),
     }

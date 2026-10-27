@@ -129,8 +129,8 @@ def svd_feature_table(summary):
                   "min_sensor_std": sensor_matrix(trial).std(axis=1).min()}
         for variant, standardize in VARIANTS.items():
             features = svd_features(trial, ENERGY_TARGET, standardize)
-            record[f"n_components_90_{variant}"] = features["n_components_90"]
-            record[f"energy_mode1_{variant}"] = features["energy_mode1"]
+            for name, value in features.items():
+                record[f"{name}_{variant}"] = value
         rows.append(record)
     table = pd.DataFrame(rows)
     table["dead_sensor"] = table["min_sensor_std"] < DEAD_SENSOR_STD_N
@@ -183,7 +183,7 @@ def main():
 
     pd.set_option("display.width", 120)
     for subset_name, subset in [("all trials", table), ("without dead-sensor trials", table[~table["dead_sensor"]])]:
-        for feature in ["energy_mode1", "n_components_90"]:
+        for feature in ["energy_mode1", "n_components_90", "effective_n_modes"]:
             for variant in VARIANTS:
                 column = f"{feature}_{variant}"
                 print(f"\n== {column} ({subset_name}) ==")
