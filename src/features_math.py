@@ -95,3 +95,103 @@ def svd_features(trial, target=0.9, standardize=False):
         "energy_mode1": energy_fractions(s)[0],
         "effective_n_modes": effective_n_modes(s),
     }
+
+
+# ---- Sensor correlation networks ----
+
+# Sensor (x, y) positions inside the insoles, from format.txt (arbitrary units;
+# y runs from heel, -800, to toe, +800)
+SENSOR_POSITIONS = {
+    "L1": (-500, -800), "L2": (-700, -400), "L3": (-300, -400), "L4": (-700, 0),
+    "L5": (-300, 0), "L6": (-700, 400), "L7": (-300, 400), "L8": (-500, 800),
+    "R1": (500, -800), "R2": (700, -400), "R3": (300, -400), "R4": (700, 0),
+    "R5": (300, 0), "R6": (700, 400), "R7": (300, 400), "R8": (500, 800),
+}
+
+IS_LEFT = np.array([name.startswith("L") for name in SENSOR_COLUMNS])
+IS_HEEL = np.array([int(name[1:]) <= 3 for name in SENSOR_COLUMNS])  # sensors 1-3
+
+
+def correlation_matrix(X):
+    """Pearson correlation between rows: Z Zt / T, where Z is X standardized per row.
+
+    This is the matrix whose eigenvectors / eigenvalues the standardized SVD finds
+    (eigenvalues = s^2 / T).
+    """
+    Z = preprocess(X, standardize=True)
+    return Z @ Z.T / X.shape[1]
+
+
+def correlation_network(X):
+    """Weighted adjacency matrix A: |correlation| between sensors, zero diagonal."""
+    A = np.abs(correlation_matrix(X))
+    np.fill_diagonal(A, 0)
+    return A
+
+
+def laplacian(A):
+    """Graph Laplacian L = D - A, with D = diag(node strengths)."""
+    return np.diag(A.sum(axis=1)) - A
+
+
+def normalized_laplacian(A):
+    """L_norm = I - D^-1/2 A D^-1/2 (eigenvalues between 0 and 2).
+
+    Isolated nodes (no edges) get an all-zero row and column.
+    """
+    degree = A.sum(axis=1)
+    connected = degree > 0
+    d_inv_sqrt = np.zeros_like(degree)
+    d_inv_sqrt[connected] = 1 / np.sqrt(degree[connected])
+    return np.diag(connected.astype(float)) - d_inv_sqrt[:, None] * A * d_inv_sqrt[None, :]
+
+
+def threshold_network(A):
+    """Keep only edges stronger than the median edge weight; the rest become 0."""
+    cutoff = np.median(A[np.triu_indices(len(A), k=1)])
+    return np.where(A > cutoff, A, 0)
+
+
+def fiedler(A):
+    """Second-smallest Laplacian eigenvalue and its eigenvector.
+
+    Sign of the vector is arbitrary; it is fixed so the mean over the heel
+    sensors (1-3, both feet) is positive.
+    """
+    eigenvalues, eigenvectors = np.linalg.eigh(laplacian(A))  # ascending
+    vector = eigenvectors[:, 1]
+    if vector[IS_HEEL].mean() < 0:
+        vector = -vector
+    return eigenvalues[1], vector
+
+
+def von_neumann_entropy(A):
+    """Entropy of the normalized Laplacian's eigenvalue distribution.
+
+    rho = L_norm / trace(L_norm) has non-negative eigenvalues summing to 1, like
+    probabilities; S = -sum(p log p). Max is log(n - 1) for evenly weighted complete graphs.
+    (trace(L_norm) = number of non-isolated nodes.)
+    """
+    eigenvalues = np.linalg.eigvalsh(normalized_laplacian(A))
+    p = np.clip(eigenvalues, 0, None) / eigenvalues.sum()
+    p = p[p > 0]
+    return -np.sum(p * np.log(p))
+
+
+def network_features(trial):
+    """Network summary numbers for one trial."""
+    A = correlation_network(sensor_matrix(trial))
+    A_thresholded = threshold_network(A)
+    off_diagonal = ~np.eye(len(A), dtype=bool)
+    same_foot = np.equal.outer(IS_LEFT, IS_LEFT)
+    heel_to_forefoot = same_foot & np.not_equal.outer(IS_HEEL, IS_HEEL)
+    return {
+        "fiedler_value": fiedler(A)[0],
+        "von_neumann_entropy": von_neumann_entropy(A),
+        "mean_edge_weight": A[off_diagonal].mean(),
+        "within_foot_corr": A[same_foot & off_diagonal].mean(),
+        "left_right_corr": A[~same_foot].mean(),
+        "heel_forefoot_corr": A[heel_to_forefoot].mean(),
+        "fiedler_value_thresholded": fiedler(A_thresholded)[0],
+        "entropy_thresholded": von_neumann_entropy(A_thresholded),
+    }
