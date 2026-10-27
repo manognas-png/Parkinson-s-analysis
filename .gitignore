@@ -1,0 +1,47 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# ---- Virtual environment ----
+.venv/
+venv/
+env/
+
+# ---- Jupyter ----
+.ipynb_checkpoints/
+
+# ---- Data ----
+# Raw PhysioNet data is public and ~190 MB; re-download instead of committing.
+# Keep the folder structure via .gitkeep files.
+data/raw/*
+data/processed/*
+!data/**/.gitkeep
+
+# ---- Model artifacts / large outputs ----
+*.pkl
+*.joblib
+*.pt
+*.pth
+*.ckpt
+*.h5
+*.npy
+*.npz
+
+# ---- SLURM / cluster logs ----
+slurm-*.out
+slurm/*.out
+slurm/*.err
+*.log
+
+# ---- Editors / OS ----
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# ---- Secrets ----
+.env
