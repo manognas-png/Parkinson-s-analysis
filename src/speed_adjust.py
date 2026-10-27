@@ -24,6 +24,10 @@ FEATURES = [
     "fiedler_value_thresholded",
     "entropy_thresholded",
     "swing_cv",
+    "dmd_dominant_freq",
+    "dmd_dominant_growth_rate",
+    "dmd_harmonic_amplitude_fraction",
+    "dmd_reconstruction_error",
 ]
 
 
@@ -33,11 +37,13 @@ def load_feature_table():
     network = pd.read_csv(METRICS_DIR / "network_features.csv")
     gait = pd.read_csv(METRICS_DIR / "steady_gait_cv.csv")
     gait.loc[~gait["enough_strides"], "swing_cv"] = np.nan  # < 20 steady strides
+    dmd_table = pd.read_csv(METRICS_DIR / "dmd_features.csv")
 
     table = (
         svd_table
         .merge(network.drop(columns=["study", "group"]), on="subject_id")
         .merge(gait[["subject_id", "swing_cv"]], on="subject_id")
+        .merge(dmd_table.drop(columns=["study", "group"]), on="subject_id")
         .merge(load_demographics()[["subject_id", "speed_01"]], on="subject_id")
     )
     return table

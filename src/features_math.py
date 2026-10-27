@@ -1,6 +1,7 @@
-"""Linear-algebra features of the 16-sensor gait signals (SVD / PCA)."""
+"""Linear-algebra features of the 16-sensor gait signals: SVD, sensor networks, DMD."""
 
 import numpy as np
+from scipy.signal import decimate
 
 SENSOR_COLUMNS = [f"L{i}" for i in range(1, 9)] + [f"R{i}" for i in range(1, 9)]
 
@@ -34,11 +35,16 @@ def svd(X):
     s  (16,):     singular values, largest first (how strong each mode is)
     Vt (16 x T):  time course of each mode, one per row
 
-    Computed through the small 16 x 16 Gram matrix: if X = U S Vt then
+    Computed through the smaller Gram matrix: if X = U S Vt then
     X Xt = U S^2 Ut, so U and S^2 are its eigenvectors and eigenvalues,
-    and Vt = S^-1 Ut X. Much faster than np.linalg.svd for 16 x 12000
-    matrices (which is slow under multithreaded OpenBLAS on the cluster).
+    and Vt = S^-1 Ut X. For tall matrices, use Xt X = V S^2 Vt instead
+    ("method of snapshots"). Much faster than np.linalg.svd here, which is
+    slow under multithreaded OpenBLAS on the cluster.
     """
+    if X.shape[0] > X.shape[1]:
+        V, s, Ut = svd(X.T)
+        return Ut.T, s, V.T
+
     eigenvalues, U = np.linalg.eigh(X @ X.T)  # ascending order
     order = np.argsort(eigenvalues)[::-1]
     U = U[:, order]
@@ -194,4 +200,83 @@ def network_features(trial):
         "heel_forefoot_corr": A[heel_to_forefoot].mean(),
         "fiedler_value_thresholded": fiedler(A_thresholded)[0],
         "entropy_thresholded": von_neumann_entropy(A_thresholded),
+    }
+
+
+# ---- Dynamic Mode Decomposition ----
+
+
+def downsample(X, factor):
+    """Low-pass filter, then keep every `factor`-th sample (avoids aliasing)."""
+    return decimate(X, factor, axis=1, zero_phase=True)
+
+
+def delay_embed(X, n_delays):
+    """Stack `n_delays` time-shifted copies of X (Hankel matrix).
+
+    Row block k holds X shifted by k samples, so each column is the recent
+    history [x(t), x(t+1), ..., x(t+n_delays-1)] instead of a single snapshot.
+    """
+    n_columns = X.shape[1] - n_delays + 1
+    return np.vstack([X[:, k:k + n_columns] for k in range(n_delays)])
+
+
+def dmd(H, rank, dt):
+    """Exact DMD: find A with H[:, 1:] ~ A @ H[:, :-1], restricted to `rank` SVD modes.
+
+    Returns eigenvalues (per step), frequencies (Hz), growth rates (1/s), unit-norm
+    modes (columns) and their amplitudes in the first snapshot.
+    """
+    X1, X2 = H[:, :-1], H[:, 1:]
+    U, s, Vt = svd(X1)
+    U, s, V = U[:, :rank], s[:rank], Vt[:rank].T
+
+    A_tilde = U.T @ X2 @ V / s  # A projected onto the top `rank` directions
+    eigenvalues, W = np.linalg.eig(A_tilde)
+    modes = X2 @ V / s @ W
+    modes /= np.linalg.norm(modes, axis=0)
+
+    amplitudes = np.linalg.lstsq(modes, X1[:, 0], rcond=None)[0]
+    omega = np.log(eigenvalues) / dt  # continuous-time rates
+    return {
+        "eigenvalues": eigenvalues,
+        "frequencies": omega.imag / (2 * np.pi),
+        "growth_rates": omega.real,
+        "modes": modes,
+        "amplitudes": amplitudes,
+    }
+
+
+def dmd_reconstruct(result, n_steps):
+    """x_k = sum_i modes_i * amplitude_i * eigenvalue_i^k, for k = 0..n_steps-1."""
+    powers = np.vander(result["eigenvalues"], n_steps, increasing=True)
+    return ((result["modes"] * result["amplitudes"]) @ powers).real
+
+
+def dmd_features(X, dt, n_delays, rank, harmonic_tolerance=0.05, min_frequency=0.3):
+    """Summary numbers from DMD of a (sensors x time) window, already centered."""
+    H = delay_embed(X, n_delays)
+    result = dmd(H, rank, dt)
+    frequencies = np.abs(result["frequencies"])
+    amplitude = np.abs(result["amplitudes"])
+
+    # Dominant mode: largest amplitude among oscillating modes
+    candidates = np.flatnonzero(frequencies > min_frequency)
+    dominant = candidates[np.argmax(amplitude[candidates])]
+    f0 = frequencies[dominant]
+
+    # Modes at f0, 2 f0, 3 f0, ... (within +/- tolerance * f0), both conjugates
+    harmonic_number = np.round(frequencies / f0)
+    is_harmonic = (harmonic_number >= 1) & (np.abs(frequencies - harmonic_number * f0) <= harmonic_tolerance * f0)
+
+    n_sensors = X.shape[0]
+    reconstruction = dmd_reconstruct(result, H.shape[1])[:n_sensors]
+    error = np.linalg.norm(H[:n_sensors] - reconstruction) / np.linalg.norm(H[:n_sensors])
+
+    return {
+        "dmd_dominant_freq": f0,
+        "dmd_dominant_abs_eigenvalue": np.abs(result["eigenvalues"][dominant]),
+        "dmd_dominant_growth_rate": result["growth_rates"][dominant],
+        "dmd_harmonic_amplitude_fraction": amplitude[is_harmonic].sum() / amplitude.sum(),
+        "dmd_reconstruction_error": error,
     }

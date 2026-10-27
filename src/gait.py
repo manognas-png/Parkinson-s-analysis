@@ -99,3 +99,21 @@ def coefficient_of_variation(values):
     if len(values) < 2:
         return np.nan
     return 100 * np.std(values, ddof=1) / np.mean(values)
+
+
+def steady_window(force, time, max_seconds=10):
+    """Start/end time of a steady walking stretch: the longest steady segment,
+    cut to at most `max_seconds`. Also returns the stride frequency (Hz) there.
+
+    Returns (None, None, nan) if the trial has no steady segment.
+    """
+    heel_strikes = detect_heel_strikes(force, time)
+    strides = stride_times(heel_strikes)
+    segments = runs_of_true(steady_stride_mask(strides))
+    if not segments:
+        return None, None, np.nan
+
+    first, last = max(segments, key=lambda seg: seg[1] - seg[0])
+    start = heel_strikes[first]
+    end = min(heel_strikes[last], start + max_seconds)  # stride `last - 1` ends at heel strike `last`
+    return start, end, 1 / np.median(strides[first:last])
