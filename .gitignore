@@ -35,6 +35,8 @@ data/processed/*
 slurm-*.out
 slurm/*.out
 slurm/*.err
+slurm/logs/*
+!slurm/logs/.gitkeep
 *.log
 
 # ---- Editors / OS ----

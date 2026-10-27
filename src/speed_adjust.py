@@ -1,7 +1,7 @@
 """Do the gait features separate PD from controls beyond walking speed and study?
 
-For each feature: fit feature ~ speed_01 + study on controls only, compute
-residuals for everyone, and compare PD vs control residuals.
+For each feature: fit feature ~ speed_01 + study on controls only (robust Huber
+regression), compute residuals for everyone, and compare PD vs control residuals.
 
 Run from the project root (after plot_explore, plot_svd, plot_network):
     python -m src.speed_adjust
@@ -9,6 +9,7 @@ Run from the project root (after plot_explore, plot_svd, plot_network):
 
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import HuberRegressor
 
 from src.load import load_demographics
 from src.plot_explore import METRICS_DIR, RESULTS_DIR
@@ -62,6 +63,9 @@ def design_matrix(table):
 def speed_adjusted_residuals(table, feature):
     """Residuals of `feature` after removing what speed + study predict in controls.
 
+    Uses Huber regression: squared loss for small residuals, absolute loss for
+    large ones, so a few extreme controls can't drag the fit.
+
     Returns the residuals (NaN where the feature or speed is missing) and the
     fitted coefficients [intercept, speed, Ju, Si].
     """
@@ -70,7 +74,9 @@ def speed_adjusted_residuals(table, feature):
     usable = ~np.isnan(y) & ~np.isnan(X).any(axis=1)
     fit_rows = usable & (table["group"] == "Control").to_numpy()
 
-    coefficients, *_ = np.linalg.lstsq(X[fit_rows], y[fit_rows], rcond=None)
+    # alpha=0: no ridge penalty; the intercept column is handled by fit_intercept
+    huber = HuberRegressor(alpha=0, max_iter=1000).fit(X[fit_rows, 1:], y[fit_rows])
+    coefficients = np.r_[huber.intercept_, huber.coef_]
     residuals = np.full(len(y), np.nan)
     residuals[usable] = y[usable] - X[usable] @ coefficients
     return residuals, coefficients
@@ -82,6 +88,11 @@ def format_result(row):
 
 def main():
     table = load_feature_table()
+
+    growing = table[table["dmd_max_abs_eigenvalue"] > 1]
+    print(f"Subjects with a growing DMD mode (max |lambda| > 1): {len(growing)} of "
+          f"{table['dmd_max_abs_eigenvalue'].notna().sum()} ({growing['group'].value_counts().to_dict()}); "
+          f"largest {table['dmd_max_abs_eigenvalue'].max():.4f}\n")
 
     comparison_rows = []
     print("Speed coefficient in controls (feature change per +1 m/s):")

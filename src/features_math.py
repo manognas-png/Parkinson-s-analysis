@@ -247,9 +247,16 @@ def dmd(H, rank, dt):
     }
 
 
-def dmd_reconstruct(result, n_steps):
-    """x_k = sum_i modes_i * amplitude_i * eigenvalue_i^k, for k = 0..n_steps-1."""
-    powers = np.vander(result["eigenvalues"], n_steps, increasing=True)
+def dmd_reconstruct(result, n_steps, stabilize=False):
+    """x_k = sum_i modes_i * amplitude_i * eigenvalue_i^k, for k = 0..n_steps-1.
+
+    stabilize=True moves eigenvalues with |lambda| > 1 onto the unit circle, so a
+    slightly growing (spurious) mode stays sustained instead of blowing up.
+    """
+    eigenvalues = result["eigenvalues"]
+    if stabilize:
+        eigenvalues = eigenvalues / np.maximum(np.abs(eigenvalues), 1)
+    powers = np.vander(eigenvalues, n_steps, increasing=True)
     return ((result["modes"] * result["amplitudes"]) @ powers).real
 
 
@@ -270,10 +277,11 @@ def dmd_features(X, dt, n_delays, rank, harmonic_tolerance=0.05, min_frequency=0
     is_harmonic = (harmonic_number >= 1) & (np.abs(frequencies - harmonic_number * f0) <= harmonic_tolerance * f0)
 
     n_sensors = X.shape[0]
-    reconstruction = dmd_reconstruct(result, H.shape[1])[:n_sensors]
+    reconstruction = dmd_reconstruct(result, H.shape[1], stabilize=True)[:n_sensors]
     error = np.linalg.norm(H[:n_sensors] - reconstruction) / np.linalg.norm(H[:n_sensors])
 
     return {
+        "dmd_max_abs_eigenvalue": np.abs(result["eigenvalues"]).max(),  # diagnostic: > 1 = growing mode
         "dmd_dominant_freq": f0,
         "dmd_dominant_abs_eigenvalue": np.abs(result["eigenvalues"][dominant]),
         "dmd_dominant_growth_rate": result["growth_rates"][dominant],
