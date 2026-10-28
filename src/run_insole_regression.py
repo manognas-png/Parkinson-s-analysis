@@ -19,11 +19,13 @@ Run as a SLURM job (not on the login node):
 
 import sys
 import time
+import warnings
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
+from scipy.linalg import LinAlgWarning
 from scipy.stats import spearmanr
 from sklearn.base import clone
 from sklearn.linear_model import LinearRegression, Ridge
@@ -92,16 +94,19 @@ def check_inputs():
 # ---------- data ----------
 
 
-def subject_data(path, weight_kg):
-    """Insole-only data for one trial: 6-sensor strides / body weight, stride durations,
-    cadence, and the 6-sensor gait features (from that subject's own signals only)."""
+def subject_data(path, weight_kg, normalize=True):
+    """Insole-only data for one trial: 6-sensor strides (divided by body weight if
+    `normalize`, else in newtons), stride durations, cadence, body weight used, and the
+    6-sensor gait features (from that subject's own signals only)."""
     info = parse_filename(path)
     trial = load_trial(path)
     time_s = trial["time"].to_numpy()
     proxy = trial[[s for s in SENSORS if s.startswith("L")]].sum(axis=1).to_numpy()
     bounds = steady_stride_bounds(proxy, time_s)
     body_weight_n = weight_kg * GRAVITY if np.isfinite(weight_kg) else (trial["L_total"] + trial["R_total"]).mean()
-    strides = resample_strides(trial[SENSORS].to_numpy().T, time_s, bounds, N_POINTS) / body_weight_n
+    strides = resample_strides(trial[SENSORS].to_numpy().T, time_s, bounds, N_POINTS)
+    if normalize:
+        strides = strides / body_weight_n
     durations = np.array([end - start for start, end in bounds])
 
     X16 = sensor_matrix(trial)
@@ -112,6 +117,7 @@ def subject_data(path, weight_kg):
         "strides": strides.astype(np.float32),
         "log_duration": np.log(durations).astype(np.float32),
         "cadence": 120 / np.median(durations) if len(durations) else np.nan,  # steps per minute
+        "body_weight_n": body_weight_n,
         **gait,
     }
 
@@ -132,7 +138,10 @@ def subject_medians(values, stride_subject, subjects):
 def ridge_fit_predict(F, stride_subject, target, train_subjects, test_subjects):
     """Fit ridge on strides of training subjects with a known target; per-subject median prediction."""
     rows = np.isin(stride_subject, train_subjects) & np.isfinite(target[stride_subject])
-    model = ridge_search().fit(F[rows], target[stride_subject[rows]], groups=stride_subject[rows])
+    with warnings.catch_warnings():
+        # the smallest alpha is ill-conditioned on 601 correlated inputs; the search never picks it
+        warnings.simplefilter("ignore", LinAlgWarning)
+        model = ridge_search().fit(F[rows], target[stride_subject[rows]], groups=stride_subject[rows])
     test_rows = np.isin(stride_subject, test_subjects)
     predictions = np.full(len(F), np.nan)
     predictions[test_rows] = model.predict(F[test_rows])
@@ -216,15 +225,16 @@ def insole_estimates(X, F, stride_subject, targets, is_control, train, test, see
     return estimates
 
 
-def classifier_fold(X, F, stride_subject, targets, info, train, test, seed):
-    """Logistic PD classifier for each feature set; returns test-subject scores."""
+def classifier_fold(X, F, stride_subject, targets, info, train, test, seed, feature_sets=None):
+    """Logistic PD classifier for each feature set (default FEATURE_SETS); returns test-subject scores."""
+    feature_sets = FEATURE_SETS if feature_sets is None else feature_sets
     is_control = (info["group"] == "Control").to_numpy()
     estimates = insole_estimates(X, F, stride_subject, targets, is_control, train, test, seed)
     table = info.join(estimates)
     y = (info["group"] == "PD").astype(int).to_numpy()
     groups = info["subject_id"].to_numpy()
     scores = {}
-    for name, columns in FEATURE_SETS.items():
+    for name, columns in feature_sets.items():
         model = make_models(seed)["logistic"]
         fitted = fit_model(clone(model), table.loc[train, columns], y[train], groups[train])
         scores[name] = fitted.predict_proba(table.loc[test, columns])[:, 1]
