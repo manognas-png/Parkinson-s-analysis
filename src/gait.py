@@ -117,3 +117,10 @@ def steady_window(force, time, max_seconds=10):
     start = heel_strikes[first]
     end = min(heel_strikes[last], start + max_seconds)  # stride `last - 1` ends at heel strike `last`
     return start, end, 1 / np.median(strides[first:last])
+
+
+def steady_stride_bounds(force, time):
+    """(start, end) times of each stride inside steady segments, for this foot."""
+    heel_strikes = detect_heel_strikes(force, time)
+    steady = steady_stride_mask(stride_times(heel_strikes))
+    return [(heel_strikes[k], heel_strikes[k + 1]) for k in np.flatnonzero(steady)]

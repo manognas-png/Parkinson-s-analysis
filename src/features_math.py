@@ -288,3 +288,52 @@ def dmd_features(X, dt, n_delays, rank, harmonic_tolerance=0.05, min_frequency=0
         "dmd_harmonic_amplitude_fraction": amplitude[is_harmonic].sum() / amplitude.sum(),
         "dmd_reconstruction_error": error,
     }
+
+
+# ---- Lagged cross-correlation networks (per foot, per stride) ----
+
+
+def lagged_cross_correlation(X, max_lag, min_std=1.0):
+    """C[k, i, j] = correlation of x_i(t) with x_j(t + lags[k]), lags = -max_lag..max_lag samples.
+
+    Rows are centered and normalized by sqrt(sum x_i^2 * sum x_j^2) over the whole
+    window, so C at lag 0 is the Pearson correlation. Rows with standard deviation
+    below `min_std` (an inactive sensor) get all-zero correlations.
+    """
+    X = center_rows(X)
+    norms = np.sqrt((X**2).sum(axis=1))
+    norms = np.where(X.std(axis=1) >= min_std, norms, np.inf)
+    T = X.shape[1]
+    lags = np.arange(-max_lag, max_lag + 1)
+    C = np.empty((len(lags), len(X), len(X)))
+    for k, lag in enumerate(lags):
+        if lag >= 0:
+            C[k] = X[:, :T - lag] @ X[:, lag:].T
+        else:
+            C[k] = X[:, -lag:] @ X[:, :T + lag].T
+    return lags, C / np.outer(norms, norms)
+
+
+def lag_network(X, max_lag, min_std=1.0):
+    """Network from the strongest lagged correlation between each pair of rows.
+
+    Returns
+      A:    max |cross-correlation| over lags (symmetric, zero diagonal)
+      lag:  lag (samples) at that maximum; lag[i, j] > 0 means sensor j's signal
+            matches sensor i's that many samples later. NaN for inactive sensors.
+      sign: +1 / -1, whether the peak is a positive or negative correlation
+    """
+    lags, C = lagged_cross_correlation(X, max_lag, min_std)
+    best = np.abs(C).argmax(axis=0)
+    peak = np.take_along_axis(C, best[None], axis=0)[0]
+    A = np.abs(peak)
+    lag = lags[best].astype(float)
+    lag[A == 0] = np.nan
+    np.fill_diagonal(A, 0)
+    np.fill_diagonal(lag, 0)
+    return A, lag, np.sign(peak)
+
+
+def algebraic_connectivity(A):
+    """Fiedler value: second-smallest eigenvalue of the Laplacian (any network size)."""
+    return np.linalg.eigvalsh(laplacian(A))[1]
