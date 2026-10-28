@@ -124,3 +124,20 @@ def steady_stride_bounds(force, time):
     heel_strikes = detect_heel_strikes(force, time)
     steady = steady_stride_mask(stride_times(heel_strikes))
     return [(heel_strikes[k], heel_strikes[k + 1]) for k in np.flatnonzero(steady)]
+
+
+def resample_strides(signals, time, bounds, n_points=100):
+    """Cut `signals` (channels x samples) into strides and resample each to n_points.
+
+    Each stride runs from one heel strike to the next (`bounds` from
+    steady_stride_bounds); point k is at k / n_points of the gait cycle
+    (0% = heel strike). Returns an array (n_strides, channels, n_points).
+    """
+    time = np.asarray(time)
+    strides = []
+    for start, end in bounds:
+        first, last = np.searchsorted(time, [start, end])
+        grid = np.linspace(start, end, n_points, endpoint=False)
+        segment_time = time[first:last + 1]
+        strides.append(np.stack([np.interp(grid, segment_time, channel[first:last + 1]) for channel in signals]))
+    return np.array(strides).reshape(len(strides), len(signals), n_points)

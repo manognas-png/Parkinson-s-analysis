@@ -1,0 +1,9 @@
+quantity,float32,int8
+parameters,3914.0,3914.0
+MACs per stride,169600.0,169600.0
+flash (bytes),15656.0,4192.0
+flash (% of 1 MB),1.493072509765625,0.3997802734375
+RAM (bytes),12000.0,4800.0
+RAM (% of 256 KB),4.57763671875,1.8310546875
+"time per stride at 64 MHz (ms, estimate)",5.3,1.325
+AUC (mean over repeats),0.6833484299516909,0.6351600241545894
