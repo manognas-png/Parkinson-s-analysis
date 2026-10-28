@@ -62,6 +62,30 @@ COMPARISONS = [
 ]
 
 
+def load_insole_data(files, demographics):
+    """Raw and body-weight-normalized strides plus per-subject info, for all trials.
+
+    Returns info (one row per subject), X_raw, X_bw (strides x 6 x 100), F_raw, F_bw
+    (flattened strides + log duration, the ridge inputs), stride_subject and targets
+    (speed, log TUG).
+    """
+    weights = demographics.set_index("subject_id")["weight_kg"]
+    data = Parallel(n_jobs=N_JOBS)(
+        delayed(subject_data)(p, weights.get(parse_filename(p)["subject_id"], np.nan), normalize=False)
+        for p in files)
+    meta = pd.DataFrame([parse_filename(p) for p in files])[["subject_id", "study", "group"]]
+    info = pd.DataFrame([{k: v for k, v in d.items() if k not in ("strides", "log_duration")} for d in data])
+    info = meta.merge(info, on="subject_id").merge(
+        demographics[["subject_id", "speed_01", "tug_s", "age", "weight_kg"]], on="subject_id", how="left")
+    X_raw = np.concatenate([d["strides"] for d in data]).astype(np.float32)
+    D = np.concatenate([d["log_duration"] for d in data])
+    stride_subject = np.concatenate([[i] * len(d["strides"]) for i, d in enumerate(data)]).astype(int)
+    X_bw = (X_raw / info["body_weight_n"].to_numpy()[stride_subject, None, None]).astype(np.float32)
+    flat = lambda X: np.hstack([X.reshape(len(X), -1), D[:, None]]).astype(np.float32)
+    targets = np.column_stack([info["speed_01"], np.log(info["tug_s"])])
+    return info, X_raw, X_bw, flat(X_raw), flat(X_bw), stride_subject, targets
+
+
 def age_matched_subjects(info, caliper=AGE_CALIPER_YEARS):
     """1:1 PD-control pairs within each study, minimizing total age difference
     (Hungarian algorithm), keeping only pairs within `caliper` years."""
@@ -119,23 +143,7 @@ def plot_robustness(table):
 def main():
     start = time.time()
     files, demographics = check_inputs()
-    weights = demographics.set_index("subject_id")["weight_kg"]
-
-    data = Parallel(n_jobs=N_JOBS)(
-        delayed(subject_data)(p, weights.get(parse_filename(p)["subject_id"], np.nan), normalize=False)
-        for p in files)
-    meta = pd.DataFrame([parse_filename(p) for p in files])[["subject_id", "study", "group"]]
-    info = pd.DataFrame([{k: v for k, v in d.items() if k not in ("strides", "log_duration")} for d in data])
-    info = meta.merge(info, on="subject_id").merge(
-        demographics[["subject_id", "speed_01", "tug_s", "age", "weight_kg"]], on="subject_id", how="left")
-    X_raw = np.concatenate([d["strides"] for d in data])
-    D = np.concatenate([d["log_duration"] for d in data])
-    stride_subject = np.concatenate([[i] * len(d["strides"]) for i, d in enumerate(data)]).astype(int)
-    body_weight = info["body_weight_n"].to_numpy()
-    X_bw = (X_raw / body_weight[stride_subject, None, None]).astype(np.float32)
-    flat = lambda X: np.hstack([X.reshape(len(X), -1), D[:, None]]).astype(np.float32)
-    F_raw, F_bw = flat(X_raw), flat(X_bw)
-    targets = np.column_stack([info["speed_01"], np.log(info["tug_s"])])
+    info, X_raw, X_bw, F_raw, F_bw, stride_subject, targets = load_insole_data(files, demographics)
     y = (info["group"] == "PD").astype(int).to_numpy()
     print(f"{len(X_raw)} strides from {info['cadence'].notna().sum()} subjects; loaded in {time.time() - start:.0f} s")
 
@@ -154,7 +162,7 @@ def main():
         for fold, (train, test) in enumerate(splitter.split(np.zeros(len(y)), y, info["subject_id"])):
             splits.append((repeat, fold, train, test))
 
-    runs = {"normalized": (X_bw, F_bw, NORMALIZED_SETS), "raw": (X_raw.astype(np.float32), F_raw, RAW_SETS)}
+    runs = {"normalized": (X_bw, F_bw, NORMALIZED_SETS), "raw": (X_raw, F_raw, RAW_SETS)}
     predictions = {}
     for run, (X, F, feature_sets) in runs.items():
         results = Parallel(n_jobs=N_JOBS)(
