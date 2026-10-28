@@ -1,0 +1,9 @@
+version,group,mean,sd,fraction_positive
+insole (BW-normalized),everything (sanity check),0.3387269562795878,0.05975014567164698,1.0
+insole (BW-normalized),"gait features (mode-1 energy, effective modes, heel-forefoot)",0.0811901141743247,0.03503953408017856,1.0
+insole (BW-normalized),speed estimates (speed + TUG),0.1338955165692008,0.04663724274746503,0.98
+insole (BW-normalized),template deviation,0.012591144527986632,0.01624983673908406,0.86
+insole (raw),everything (sanity check),0.33391617933723194,0.06776572278971021,1.0
+insole (raw),"gait features (mode-1 energy, effective modes, heel-forefoot)",0.0874017822333612,0.039001271345367024,0.98
+insole (raw),speed estimates (speed + TUG),0.13008329156223894,0.04975757372241595,1.0
+insole (raw),template deviation,0.01359133945976052,0.016436540613675926,0.76
