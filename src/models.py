@@ -164,3 +164,84 @@ def cost_report(model, n_channels=6, n_points=100, raw_samples_per_stride=200):
         "ram_bytes_float32": 4 * peak_pair + raw_buffer,
         "ram_bytes_int8": peak_pair + raw_buffer,
     }
+
+
+# ---- Stride regressor (insole -> speed, TUG) ----
+
+
+class StrideRegressor(nn.Module):
+    """Small 1D CNN: one stride (channels x 100) plus its log duration -> n_outputs values.
+
+    Convolutions read the shape of the stride; global average pooling makes the
+    summary independent of where in the cycle a pattern occurs; the stride
+    duration is added afterwards because resampling to 100 points removes timing.
+    """
+
+    def __init__(self, n_channels=6, hidden=16, n_outputs=2):
+        super().__init__()
+        self.features = nn.Sequential(
+            nn.Conv1d(n_channels, hidden, 5, stride=2, padding=2), nn.ReLU(),  # 100 -> 50
+            nn.Conv1d(hidden, hidden, 5, stride=2, padding=2), nn.ReLU(),  # 50 -> 25
+            nn.Conv1d(hidden, hidden, 5, padding=2), nn.ReLU(),  # 25 -> 25
+            nn.AdaptiveAvgPool1d(1),
+        )
+        self.head = nn.Sequential(nn.Linear(hidden + 1, hidden), nn.ReLU(), nn.Linear(hidden, n_outputs))
+
+    def forward(self, x, log_duration):
+        summary = self.features(x).squeeze(-1)
+        return self.head(torch.cat([summary, log_duration.unsqueeze(-1)], dim=1))
+
+
+def _masked_mse(prediction, target, mask):
+    return ((prediction - target) ** 2 * mask).sum() / mask.sum().clamp(min=1)
+
+
+def train_stride_regressor(X, log_duration, Y, X_val, log_duration_val, Y_val, seed,
+                           max_epochs=500, patience=30, batch_size=256, lr=1e-3, device="cpu"):
+    """Fit StrideRegressor with masked MSE (NaN targets are skipped); early-stop on validation.
+
+    Y: (strides, outputs), already standardized; NaN where a target is unknown.
+    Returns the best model (on CPU), its epoch and validation loss.
+    """
+    torch.manual_seed(seed)
+    model = StrideRegressor(n_channels=X.shape[1], n_outputs=Y.shape[1]).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+    def tensors(x, d, y):
+        y = torch.from_numpy(y).float()
+        mask = (~torch.isnan(y)).float()
+        return (torch.from_numpy(x).float().to(device), torch.from_numpy(d).float().to(device),
+                torch.nan_to_num(y).to(device), mask.to(device))
+
+    x, d, y, m = tensors(X, log_duration, Y)
+    xv, dv, yv, mv = tensors(X_val, log_duration_val, Y_val)
+    generator = torch.Generator().manual_seed(seed)
+
+    best_loss, best_epoch, best_state, waited = np.inf, -1, None, 0
+    for epoch in range(max_epochs):
+        model.train()
+        order = torch.randperm(len(x), generator=generator).to(device)
+        for i in range(0, len(x), batch_size):
+            batch = order[i:i + batch_size]
+            optimizer.zero_grad()
+            loss = _masked_mse(model(x[batch], d[batch]), y[batch], m[batch])
+            loss.backward()
+            optimizer.step()
+        model.eval()
+        with torch.no_grad():
+            val_loss = _masked_mse(model(xv, dv), yv, mv).item()
+        if val_loss < best_loss:
+            best_loss, best_epoch, best_state, waited = val_loss, epoch, copy.deepcopy(model.state_dict()), 0
+        else:
+            waited += 1
+            if waited >= patience:
+                break
+    model.load_state_dict(best_state)
+    model.to("cpu").eval()
+    return model, best_epoch, best_loss
+
+
+def predict_strides(model, X, log_duration):
+    """Per-stride predictions (strides, outputs) on the CPU."""
+    with torch.no_grad():
+        return model(torch.from_numpy(X).float(), torch.from_numpy(log_duration).float()).numpy()
