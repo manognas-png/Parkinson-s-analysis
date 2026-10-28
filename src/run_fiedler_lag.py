@@ -6,8 +6,10 @@ Per subject: median Fiedler value over strides, its CV over strides, and the
 median heel (1-3) -> forefoot (6-8) lag; left and right feet averaged.
 
 Run as a SLURM job (not on the login node):  sbatch slurm/fiedler_lag.sbatch
+Options: --max-lag SECONDS (default 0.3), --suffix TEXT (added to output file names)
 """
 
+import argparse
 import sys
 import time
 
@@ -22,13 +24,14 @@ from src.load import DATA_DIR, FILENAME_PATTERN, SAMPLING_RATE_HZ, load_demograp
 from src.plot_explore import FIGURE_DIR, GROUP_COLORS, METRICS_DIR, RESULTS_DIR, TEXT_COLOR, save
 
 N_JOBS = 4
-MAX_LAG_S = 0.3
-MAX_LAG = int(MAX_LAG_S * SAMPLING_RATE_HZ)  # 30 samples
+MAX_LAG_S = 0.3  # default search window for the lag, +/- seconds
 FEET = {"L": "L_total", "R": "R_total"}
 HEEL = [0, 1, 2]  # sensors 1-3
 FOREFOOT = [5, 6, 7]  # sensors 6-8
 FEATURES = ["fiedler_median", "fiedler_cv", "heel_forefoot_lag_s"]
 EXPECTED_SUBJECTS = 165
+DIAGNOSTICS = ["strides_with_inactive_sensor", "heel_forefoot_negative_peak_fraction",
+               "heel_forefoot_at_boundary_fraction"]
 
 
 def fail(message):
@@ -50,17 +53,21 @@ def check_inputs():
     return files, demographics
 
 
-def foot_features(trial, foot):
-    """Per-stride networks for one foot -> subject-level numbers + median lag matrix."""
+def foot_features(trial, foot, max_lag):
+    """Per-stride networks for one foot -> subject-level numbers + median lag matrix.
+
+    `max_lag` is in samples. Lags that land exactly on +/- max_lag are counted:
+    there the true peak may lie outside the window (the lag is censored).
+    """
     sensors = [f"{foot}{i}" for i in range(1, 9)]
     time_s = trial["time"].to_numpy()
     signals = trial[sensors].to_numpy().T
 
     fiedler, heel_forefoot_lag, lag_matrices = [], [], []
-    n_inactive, n_negative, n_pairs = 0, 0, 0
+    n_inactive, n_negative, n_boundary, n_pairs = 0, 0, 0, 0
     for start, end in steady_stride_bounds(trial[FEET[foot]], trial["time"]):
         first, last = np.searchsorted(time_s, [start, end])
-        A, lag, sign = lag_network(signals[:, first:last], MAX_LAG)
+        A, lag, sign = lag_network(signals[:, first:last], max_lag)
         lag_s = lag / SAMPLING_RATE_HZ
 
         fiedler.append(algebraic_connectivity(A))
@@ -68,6 +75,7 @@ def foot_features(trial, foot):
         lag_matrices.append(lag_s)
         n_inactive += int((A.sum(axis=1) == 0).any())
         n_negative += int((sign[np.ix_(HEEL, FOREFOOT)] < 0).sum())
+        n_boundary += int((np.abs(lag[np.ix_(HEEL, FOREFOOT)]) >= max_lag).sum())
         n_pairs += len(HEEL) * len(FOREFOOT)
 
     if not fiedler:
@@ -79,10 +87,11 @@ def foot_features(trial, foot):
         "heel_forefoot_lag_s": np.nanmedian(heel_forefoot_lag),
         "strides_with_inactive_sensor": n_inactive,
         "heel_forefoot_negative_peak_fraction": n_negative / n_pairs,
+        "heel_forefoot_at_boundary_fraction": n_boundary / n_pairs,
     }, np.nanmedian(lag_matrices, axis=0)
 
 
-def subject_features(path):
+def subject_features(path, max_lag):
     """Both feet for one trial; features averaged over feet (NaN-aware)."""
     info = parse_filename(path)
     trial = load_trial(path)
@@ -90,12 +99,12 @@ def subject_features(path):
     per_foot = {}
     left_lag_matrix = None
     for foot in FEET:
-        values, lag_matrix = foot_features(trial, foot)
+        values, lag_matrix = foot_features(trial, foot, max_lag)
         per_foot[foot] = values
         record[f"n_strides_{foot}"] = values["n_strides"]
         if foot == "L":
             left_lag_matrix = lag_matrix
-    for name in [*FEATURES, "strides_with_inactive_sensor", "heel_forefoot_negative_peak_fraction"]:
+    for name in [*FEATURES, *DIAGNOSTICS]:
         values = [per_foot[f].get(name, np.nan) for f in FEET]
         record[name] = np.nanmean(values) if not np.all(np.isnan(values)) else np.nan
     return record, left_lag_matrix
@@ -120,7 +129,7 @@ def compare_raw_and_adjusted(table):
     return pd.DataFrame(rows)
 
 
-def plot_lag_matrices(lag_matrices):
+def plot_lag_matrices(lag_matrices, max_lag_s, filename):
     """Figure 12: left-foot 8 x 8 lag matrix (ms), averaged over controls vs PD."""
     means = {group: np.nanmean(np.stack(m), axis=0) * 1000 for group, m in lag_matrices.items()}
     limit = max(np.nanmax(np.abs(m)) for m in means.values())
@@ -143,35 +152,45 @@ def plot_lag_matrices(lag_matrices):
         ax.grid(False)
         ax.set_title(f"{group} (n = {len(lag_matrices[group])})", color=GROUP_COLORS[group], loc="left")
     fig.colorbar(image, ax=axes, label="lag (ms): > 0 means j follows i", shrink=0.85)
-    fig.suptitle("Left foot: lag at the strongest cross-correlation, median over strides, mean over subjects",
-                 x=0.06, ha="left")
-    save(fig, "12_lag_networks.png")
+    fig.suptitle(f"Left foot: lag at the strongest cross-correlation (search window ±{max_lag_s} s), "
+                 "median over strides, mean over subjects", x=0.06, ha="left")
+    save(fig, filename)
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--max-lag", type=float, default=MAX_LAG_S, help="lag search window, +/- seconds")
+    parser.add_argument("--suffix", default="", help="added to output file names, e.g. _lag0.5")
+    args = parser.parse_args()
+    max_lag = int(round(args.max_lag * SAMPLING_RATE_HZ))
+    suffix = args.suffix
+
     start = time.time()
+    print(f"lag search window: +/- {args.max_lag} s ({max_lag} samples)")
     files, demographics = check_inputs()
 
-    results = Parallel(n_jobs=N_JOBS)(delayed(subject_features)(path) for path in files)
+    results = Parallel(n_jobs=N_JOBS)(delayed(subject_features)(path, max_lag) for path in files)
     table = pd.DataFrame([record for record, _ in results])
     table = table.merge(demographics[["subject_id", "speed_01"]], on="subject_id", how="left")
     print(f"{len(table)} subjects processed in {time.time() - start:.0f} s")
 
     METRICS_DIR.mkdir(parents=True, exist_ok=True)
-    table.drop(columns="speed_01").to_csv(METRICS_DIR / "fiedler_lag_features.csv", index=False)
-    print(f"saved {(METRICS_DIR / 'fiedler_lag_features.csv').relative_to(RESULTS_DIR.parent)}")
+    table.drop(columns="speed_01").to_csv(METRICS_DIR / f"fiedler_lag_features{suffix}.csv", index=False)
+    print(f"saved {(METRICS_DIR / f'fiedler_lag_features{suffix}.csv').relative_to(RESULTS_DIR.parent)}")
 
     print("\nSteady strides per foot (median [min-max]): "
           f"L {table['n_strides_L'].median():.0f} [{table['n_strides_L'].min()}-{table['n_strides_L'].max()}], "
           f"R {table['n_strides_R'].median():.0f} [{table['n_strides_R'].min()}-{table['n_strides_R'].max()}]")
     print(f"Subjects without any steady stride: {list(table.loc[table['fiedler_median'].isna(), 'subject_id'])}")
     print("Median per group:")
-    print(table.groupby("group")[[*FEATURES, "strides_with_inactive_sensor",
-                                  "heel_forefoot_negative_peak_fraction"]].median().round(4).T.to_string())
+    print(table.groupby("group")[[*FEATURES, *DIAGNOSTICS]].median().round(4).T.to_string())
+    at_edge = table["heel_forefoot_at_boundary_fraction"]
+    print(f"Heel->forefoot lags on the window edge (+/- {args.max_lag} s): median {at_edge.median():.1%} of pairs "
+          f"per subject; subjects with > 25% on the edge: {(at_edge > 0.25).sum()} of {at_edge.notna().sum()}")
 
     print()
     comparison = compare_raw_and_adjusted(table)
-    comparison.to_csv(METRICS_DIR / "fiedler_lag_comparison.csv", index=False)
+    comparison.to_csv(METRICS_DIR / f"fiedler_lag_comparison{suffix}.csv", index=False)
     view = comparison.assign(
         raw=lambda d: d["raw_p_pd_higher"].map("{:.2f}".format) + " (" + d["raw_p_value"].map("{:.3f}".format) + ")",
         adjusted=lambda d: d["adjusted_p_pd_higher"].map("{:.2f}".format) + " ("
@@ -188,7 +207,7 @@ def main():
         if matrix is not None:
             lag_matrices[record["group"]].append(matrix)
     FIGURE_DIR.mkdir(parents=True, exist_ok=True)
-    plot_lag_matrices(lag_matrices)
+    plot_lag_matrices(lag_matrices, args.max_lag, f"12_lag_networks{suffix}.png")
     print(f"\ntotal time {time.time() - start:.0f} s")
 
 

@@ -8,6 +8,7 @@ computed exactly from each subject's 16 x 16 covariance / correlation matrices.
 Run as a SLURM job (not on the login node):
     sbatch slurm/time_one_fold.sbatch           # timing only: one fold -> projected runtime
     sbatch slurm/supervised_selection.sbatch    # full run
+    --exclude-dead-sensors                      # sensor-5 check: drop trials with a near-dead sensor
 """
 
 import argparse
@@ -19,6 +20,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
+from scipy.stats import mannwhitneyu
 from sklearn.base import clone
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
@@ -38,6 +40,7 @@ from src.features_math import (
 )
 from src.load import DATA_DIR, FILENAME_PATTERN, load_demographics, load_trial, parse_filename
 from src.plot_explore import FIGURE_DIR, METRICS_DIR, RESULTS_DIR, TEXT_COLOR, save
+from src.plot_svd import DEAD_SENSOR_STD_N
 from src.run_ml import make_models
 from src.run_sensor_selection import ANATOMICAL
 
@@ -80,13 +83,28 @@ def check_inputs():
 
 
 def subject_matrices(path):
-    """Centered Gram matrix, correlation matrix and standardized Gram for one trial."""
+    """Centered Gram, correlation and standardized Gram matrices for one trial,
+    plus each sensor's standard deviation and mean force (N)."""
     info = parse_filename(path)
     X = sensor_matrix(load_trial(path))
     Xc = center_rows(X)
     Z = preprocess(X, standardize=True)
     standardized_gram = Z @ Z.T
-    return info, Xc @ Xc.T, standardized_gram / X.shape[1], standardized_gram
+    return (info, Xc @ Xc.T, standardized_gram / X.shape[1], standardized_gram,
+            X.std(axis=1), X.mean(axis=1))
+
+
+def compare_sensor5(info, sensor_std, sensor_mean):
+    """Is sensor 5 genuinely different in PD, among trials where every sensor works?"""
+    print("Sensor 5 (medial midfoot, under the arch), trials without a near-dead sensor:")
+    is_pd = (info["group"] == "PD").to_numpy()
+    for name in ["L5", "R5"]:
+        k = SENSOR_COLUMNS.index(name)
+        for label, values in [("mean force (N)", sensor_mean[:, k]), ("std (N)", sensor_std[:, k])]:
+            u, p = mannwhitneyu(values[is_pd], values[~is_pd])
+            print(f"  {name} {label:15s} control median {np.median(values[~is_pd]):7.1f} | "
+                  f"PD median {np.median(values[is_pd]):7.1f} | P(PD > Ctrl) {u / (is_pd.sum() * (~is_pd).sum()):.2f} "
+                  f"(Mann-Whitney p {p:.3f})")
 
 
 def spectral_table(cov, corr, names):
@@ -190,7 +208,7 @@ def time_one_fold(cov, corr, y, groups, speed, study):
           f"(+ about 2 min for loading data)")
 
 
-def plot_results(auc_table, random_aucs, frequency, qr_sets, reference):
+def plot_results(auc_table, random_aucs, frequency, qr_sets, reference, filename="14_supervised_selection.png"):
     """Figure 14: AUC vs number of sensors; how often each sensor was selected."""
     fig, (ax_auc, ax_freq) = plt.subplots(1, 2, figsize=(15, 5.5), gridspec_kw={"width_ratios": [1.1, 1]})
     gait = auc_table[auc_table["feature_set"] == "gait"]
@@ -230,12 +248,14 @@ def plot_results(auc_table, random_aucs, frequency, qr_sets, reference):
     fig.colorbar(image, ax=ax_freq, label="selection frequency")
     fig.suptitle("Supervised vs QR sensor selection", x=0.06, ha="left")
     fig.tight_layout()
-    save(fig, "14_supervised_selection.png")
+    save(fig, filename)
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--time-one-fold", action="store_true", help="only time one fold and project the runtime")
+    parser.add_argument("--exclude-dead-sensors", action="store_true",
+                        help=f"drop trials where any sensor has std < {DEAD_SENSOR_STD_N} N (sensor-5 check)")
     args = parser.parse_args()
 
     start = time.time()
@@ -251,6 +271,24 @@ def main():
     speed = info["speed_01"].to_numpy()
     study = info["study"].to_numpy()
     print(f"loaded {len(info)} subjects in {time.time() - start:.0f} s")
+
+    suffix = ""
+    if args.exclude_dead_sensors:
+        sensor_std = np.stack([row[4] for row in loaded])
+        sensor_mean = np.stack([row[5] for row in loaded])
+        dead = sensor_std.min(axis=1) < DEAD_SENSOR_STD_N
+        dropped = info.loc[dead, ["subject_id", "group"]].assign(
+            sensor=[SENSOR_COLUMNS[k] for k in sensor_std[dead].argmin(axis=1)])
+        print(f"\nExcluding {dead.sum()} trials with a near-dead sensor (std < {DEAD_SENSOR_STD_N} N):")
+        print(dropped.to_string(index=False))
+        keep = ~dead
+        loaded = [row for row, k in zip(loaded, keep) if k]
+        info = info[keep].reset_index(drop=True)
+        cov, corr = cov[keep], corr[keep]
+        y, groups, speed, study = y[keep], groups[keep], speed[keep], study[keep]
+        compare_sensor5(info, sensor_std[keep], sensor_mean[keep])
+        print(f"{len(info)} subjects remain ({y.sum()} PD, {len(y) - y.sum()} control)\n")
+        suffix = "_no_dead_sensors"
 
     if args.time_one_fold:
         time_one_fold(cov, corr, y, groups, speed, study)
@@ -327,9 +365,9 @@ def main():
         })
     auc_table = pd.DataFrame(rows).sort_values(["feature_set", "method", "n_sensors"])
     METRICS_DIR.mkdir(parents=True, exist_ok=True)
-    auc_table.to_csv(METRICS_DIR / "supervised_selection.csv", index=False)
+    auc_table.to_csv(METRICS_DIR / f"supervised_selection{suffix}.csv", index=False)
     pd.DataFrame({"sensors": [",".join(s) for s in random_sets], "auc_mean": random_aucs}) \
-        .to_csv(METRICS_DIR / "random6_aucs.csv", index=False)
+        .to_csv(METRICS_DIR / f"random6_aucs{suffix}.csv", index=False)
 
     # Selection frequency and overlap with QR
     frequency = pd.DataFrame(0.0, index=SIZES, columns=SENSOR_COLUMNS)
@@ -341,7 +379,7 @@ def main():
                 frequency.loc[size, sensor] += 1 / len(chosen)
         qr_set = set(qr_sets[size])
         jaccard[size] = np.mean([len(s & qr_set) / len(s | qr_set) for s in chosen])
-    frequency.to_csv(METRICS_DIR / "selection_frequency.csv")
+    frequency.to_csv(METRICS_DIR / f"selection_frequency{suffix}.csv")
 
     pd.set_option("display.width", 220)
     print("\n== AUC (mean over repeats; pooled bootstrap 95% CI; ratio to all 16 with CI) ==")
@@ -371,7 +409,8 @@ def main():
     print("  (greedy6 = the selection procedure, evaluated without leakage; its chosen sets differ by fold)")
 
     FIGURE_DIR.mkdir(parents=True, exist_ok=True)
-    plot_results(auc_table, random_aucs, frequency, qr_sets, reference_auc)
+    plot_results(auc_table, random_aucs, frequency, qr_sets, reference_auc,
+                 filename=f"14_supervised_selection{suffix}.png")
     print(f"\ntotal time {time.time() - start:.0f} s")
 
 
