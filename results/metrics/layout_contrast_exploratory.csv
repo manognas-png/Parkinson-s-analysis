@@ -1,0 +1,3 @@
+dataset,difference_arch6_minus_anatomical6,ci_low,ci_high,fraction_of_bootstraps_arch6_better
+all trials,0.003140083632019113,-0.055260603345280775,0.059606481481481295,0.5455
+without near-dead-sensor trials,0.007589577089577089,-0.05062021312021329,0.06545954045954028,0.616
