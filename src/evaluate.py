@@ -164,3 +164,32 @@ def summarize(predictions, keys=("repeat",), by=None, threshold=THRESHOLD):
         rows.append({**dict(zip(group_columns, key)), "n_subjects": len(subset),
                      **binary_metrics(subset["y"], subset["score"], threshold)})
     return pd.DataFrame(rows)
+
+
+def subject_scores(predictions):
+    """One score per subject: mean over its rows and over all repeats."""
+    return predictions.groupby("subject").agg(y=("y", "first"), score=("score", "mean"))
+
+
+def bootstrap_auc(score_table, n_boot=2000, seed=0):
+    """Stratified subject bootstrap of AUC for several score columns at once.
+
+    score_table: index = subject, column 'y' plus one score column per model/variant.
+    PD and control subjects are resampled separately (so both are always present),
+    and every column uses the same resampled subjects, so differences and ratios
+    between columns are paired. Returns an (n_boot x columns) DataFrame of AUCs.
+
+    The interval reflects which subjects happened to be in the sample, not the
+    variation from retraining the model.
+    """
+    rng = np.random.default_rng(seed)
+    y = score_table["y"].to_numpy()
+    columns = [c for c in score_table.columns if c != "y"]
+    scores = score_table[columns].to_numpy()
+    positive, negative = np.flatnonzero(y == 1), np.flatnonzero(y == 0)
+    aucs = np.empty((n_boot, len(columns)))
+    for b in range(n_boot):
+        sample = np.r_[rng.choice(positive, len(positive)), rng.choice(negative, len(negative))]
+        for k in range(len(columns)):
+            aucs[b, k] = roc_auc_score(y[sample], scores[sample, k])
+    return pd.DataFrame(aucs, columns=columns)

@@ -1,6 +1,7 @@
 """Linear-algebra features of the 16-sensor gait signals: SVD, sensor networks, DMD."""
 
 import numpy as np
+from scipy.linalg import qr
 from scipy.signal import decimate
 
 SENSOR_COLUMNS = [f"L{i}" for i in range(1, 9)] + [f"R{i}" for i in range(1, 9)]
@@ -337,3 +338,74 @@ def lag_network(X, max_lag, min_std=1.0):
 def algebraic_connectivity(A):
     """Fiedler value: second-smallest eigenvalue of the Laplacian (any network size)."""
     return np.linalg.eigvalsh(laplacian(A))[1]
+
+
+# ---- Sparse sensor selection ----
+
+
+def sensor_modes(G):
+    """Eigenvectors of a 16 x 16 Gram matrix G = X Xt, strongest first.
+
+    These are the left singular vectors (spatial modes) of the data X.
+    """
+    eigenvalues, U = np.linalg.eigh(G)
+    return U[:, np.argsort(eigenvalues)[::-1]]
+
+
+def qr_pivot_sensors(modes, n_sensors):
+    """Sensors chosen by QR with column pivoting on modes.T (r x 16), in selection order.
+
+    Each pivot step takes the sensor whose mode loadings are largest after removing
+    what the already-chosen sensors explain: a greedy way to make the selected rows
+    of `modes` as well-conditioned (large volume) as possible.
+    """
+    _, _, pivots = qr(modes.T, pivoting=True, mode="economic")
+    return pivots[:n_sensors]
+
+
+def reconstruction_matrix(modes, sensors):
+    """M (16 x 16) with x_hat = M x, using only x[sensors].
+
+    Fit the mode amplitudes to the measured sensors (least squares, a = pinv(modes[S]) x[S]),
+    then expand back to all sensors: x_hat = modes a.
+    """
+    M = np.zeros((len(modes), len(modes)))
+    M[:, sensors] = modes @ np.linalg.pinv(modes[sensors])
+    return M
+
+
+def relative_reconstruction_error(G, M):
+    """||X - M X||_F / ||X||_F, computed from G = X Xt alone (no need to keep X)."""
+    residual = np.eye(len(G)) - M
+    return np.sqrt(np.trace(residual @ G @ residual.T) / np.trace(G))
+
+
+def heel_forefoot_coupling(X, names):
+    """Mean |r| between heel (1-3) and forefoot (4-8) sensors of the same foot.
+
+    X holds the rows for sensors `names` (e.g. ["L1", "L7"]); NaN if no such pair.
+    With all 16 sensors this equals network_features' heel_forefoot_corr.
+    """
+    R = np.abs(correlation_matrix(X))
+    pairs = [(i, j) for i, a in enumerate(names) for j, b in enumerate(names)
+             if a[0] == b[0] and int(a[1:]) <= 3 and int(b[1:]) >= 4]
+    return np.mean([R[i, j] for i, j in pairs]) if pairs else np.nan
+
+
+def subset_spectral_features(cov, corr, names):
+    """Mode-1 energy, effective modes and heel-forefoot coupling for a sensor subset.
+
+    Computed from one subject's full 16 x 16 centered Gram matrix (`cov` = Xc Xct)
+    and correlation matrix (`corr`): the subset's SVD energies are the eigenvalues
+    of cov[S, S], so the result equals computing them from the subset's signals.
+    """
+    index = [SENSOR_COLUMNS.index(n) for n in names]
+    energies = np.clip(np.linalg.eigvalsh(cov[np.ix_(index, index)])[::-1], 0, None)
+    fractions = energies / energies.sum()
+    pairs = [(i, j) for i, a in zip(index, names) for j, b in zip(index, names)
+             if a[0] == b[0] and int(a[1:]) <= 3 and int(b[1:]) >= 4]
+    return {
+        "energy_mode1": fractions[0],
+        "effective_modes": 1 / np.sum(fractions**2),
+        "heel_forefoot": np.mean([abs(corr[i, j]) for i, j in pairs]) if pairs else np.nan,
+    }
