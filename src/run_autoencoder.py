@@ -33,6 +33,8 @@ SEED = 0
 N_POINTS = 100
 SENSORS = ANATOMICAL[6]  # L1, L4, L7, R1, R4, R7
 VALIDATION_FRACTION = 0.15  # of training-control subjects, for early stopping
+MAX_EPOCHS = 1000  # first run stopped at the 200 cap while still improving
+PATIENCE = 30  # epochs without validation improvement before stopping
 PCA_COMPONENTS = 10
 N_BOOT = 2000
 GRAVITY = 9.81
@@ -120,7 +122,8 @@ def run_fold(X, stride_subject, subject_ids, is_control, train, test, seed):
     fit_mask = np.isin(stride_subject, list(fit_subjects))
     val_mask = np.isin(stride_subject, list(val_subjects))
 
-    model, best_epoch, val_loss = train_autoencoder(X[fit_mask], X[val_mask], seed, device=DEVICE)
+    model, best_epoch, val_loss = train_autoencoder(X[fit_mask], X[val_mask], seed, max_epochs=MAX_EPOCHS,
+                                                    patience=PATIENCE, device=DEVICE)
     calibration = X[fit_mask][rng.choice(fit_mask.sum(), min(2000, fit_mask.sum()), replace=False)]
     quantized = FakeQuantAutoencoder(model, calibration)
 
