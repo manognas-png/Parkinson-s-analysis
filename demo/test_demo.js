@@ -18,8 +18,12 @@ for (const [subject, w] of Object.entries(demo.windows)) {
     const left = panel.analysis.strides.filter((s) => s.version === version && s.foot === "L");
     const cards = core.cardValues(panel, version, panel.duration, demo.medians);
     const start = core.cardValues(panel, version, 0, demo.medians);
+    const afterLoop = core.cardValues(panel, version, 0, demo.medians, true);
+    const oneStride = core.cardValues(panel, version, left[0].heel_strike_end, demo.medians);
     check(left.length >= 5 && cards.every((c) => !c.value.startsWith("waiting") && c.latest)
-      && start.every((c) => c.value.startsWith("waiting")),
+      && start.every((c) => c.value.startsWith("waiting"))
+      && afterLoop.every((c, k) => c.value === cards[k].value && c.latest.includes(`${left.length} strides`))
+      && oneStride.every((c) => c.latest.endsWith("1 stride so far")),
       `${subject} ${version}-sensor: ${panel.fs} Hz, ${panel.duration.toFixed(1)} s, ${left.length} left strides, ` +
       `trace max ${core.traceMax(panel, version).toFixed(2)} BW, running medians: ${cards.map((c) => c.value).join(" | ")}`);
   }

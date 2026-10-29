@@ -97,10 +97,15 @@
     return latest;
   }
 
-  /** Text for the four cards: median of all strides so far (main), latest stride (small), group medians. */
-  function cardValues(panel, version, t, medians) {
-    const done = panel.analysis.strides.filter((s) => s.version === version && s.foot === "L" && s.heel_strike_end <= t);
-    const stride = done.length ? done[done.length - 1] : null;
+  /** Text for the four cards: median of all strides so far (main), latest stride (small), group medians.
+   *  looped = true once the clip has played through: then every stride in the clip counts, so the
+   *  values do not blank when the clip restarts. */
+  function cardValues(panel, version, t, medians, looped = false) {
+    const left = panel.analysis.strides.filter((s) => s.version === version && s.foot === "L");
+    const thisLoop = left.filter((s) => s.heel_strike_end <= t);
+    const done = looped ? left : thisLoop;
+    let stride = thisLoop.length ? thisLoop[thisLoop.length - 1] : null;
+    if (!stride && looped && left.length) stride = left[left.length - 1]; // just restarted: last stride of the clip
     // Heel load in body weights: the engine already divided by the entered weight; otherwise divide
     // its newtons by the single-support estimate.
     const toBw = (metric, v) => (metric === "heel_load_early" && !panel.weightKg ? v / panel.bodyWeightN : v);
@@ -125,7 +130,8 @@
       return {
         metric, name: names[metric],
         value: values.length ? fmt[metric](median(values)) : "waiting for first step…",
-        latest: hasLatest ? `latest stride: ${fmt[metric](toBw(metric, latest))} · ${values.length} strides so far` : "",
+        latest: hasLatest ? `latest stride: ${fmt[metric](toBw(metric, latest))} · ${values.length} `
+          + `${values.length === 1 ? "stride" : "strides"} so far` : "",
         reference: `group medians: healthy <b>${fmtRef(metric, medians[version].Control[metric])}</b> · ` +
           `PD <b>${fmtRef(metric, medians[version].PD[metric])}</b>`,
       };
@@ -195,7 +201,8 @@
   const POS = engine.SENSOR_POSITIONS;
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-  const state = { pair: 0, version: "16", playing: true, speed: 1, t: 0, panels: [null, null], loaded: null };
+  const state = { pair: 0, version: "16", playing: true, speed: 1, t: 0, looped: false, panels: [null, null],
+    loaded: null };
   const $ = (id) => document.getElementById(id);
 
   // ---- Building the two panels ----
@@ -223,6 +230,7 @@
     state.panels[0] = demoPanel(pair.control, "Control");
     state.panels[1] = state.loaded || demoPanel(pair.pd, "PD");
     state.t = 0;
+    state.looped = false;
     buildPanelDom(0);
     buildPanelDom(1);
   }
@@ -356,7 +364,7 @@
   function drawCards(k, panel, t) {
     const box = document.getElementById(`cards-${k}`);
     if (!box) return;
-    const html = cardValues(panel, state.version, t, DATA.medians).map((c) =>
+    const html = cardValues(panel, state.version, t, DATA.medians, state.looped).map((c) =>
       `<div class="metric"><div class="name">${c.name}</div>
        <div class="value${c.latest ? "" : " waiting"}">${c.value}</div>
        <div class="latest">${c.latest}</div><div class="ref">${c.reference}</div></div>`).join("");
@@ -422,7 +430,9 @@
   function frame(timestamp) {
     if (lastFrame !== null && state.playing) {
       const duration = Math.min(...state.panels.map((p) => p.duration));
-      state.t = (state.t + ((timestamp - lastFrame) / 1000) * state.speed) % duration;
+      const next = state.t + ((timestamp - lastFrame) / 1000) * state.speed;
+      if (next >= duration) state.looped = true; // clip played through: keep all strides on the cards
+      state.t = next % duration;
     }
     lastFrame = timestamp;
     state.panels.forEach((panel, k) => {
@@ -452,7 +462,7 @@
         const weight = parseFloat($("weight").value) || null;
         state.loaded = makePanel(trial, { engine, templates: TEMPLATES, weightKg: weight, rule: "steady",
           label: file.name, group: "Loaded",
-          meta: weight ? `body weight ${weight} kg` : "no body weight: heel load in newtons" });
+          meta: weight ? `body weight ${weight} kg` : "no body weight: estimated from the insole" });
         const n = state.loaded.analysis.strides.filter((s) => s.version === "16" && s.foot === "L").length;
         $("file-status").textContent = `${file.name}: ${trial.time.length} samples, ${n} left strides in the 10-s window`;
         $("clear-file").hidden = false;
