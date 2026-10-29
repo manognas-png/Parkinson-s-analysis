@@ -5,6 +5,9 @@
  *   1. find heel strikes and steady strides from the summed foot force,
  *   2. find each stance (heel strike -> foot off the ground) and stretch it to 0-100 %,
  *   3. compute per-stride metrics, in a 16-sensor and a 6-sensor version.
+ * Centre-of-pressure traces are smoothed (Savitzky-Golay, 11 points, order 2, as in Step 11).
+ * Template deviation divides each stride by its own single-support force, so it needs no
+ * body weight; there is one template per foot.
  *
  * The same file works in a web page (it creates window.GaitEngine) and in Node.js
  * (require("./engine.js")), so it can be tested against Python before it goes in a browser.
@@ -13,7 +16,7 @@
   "use strict";
 
   // ---- Settings: identical to the Python code ----------------------------------
-  const SAMPLING_RATE_HZ = 100;
+  // The sampling rate is read from the time column (100 Hz for PhysioNet files).
   const CONTACT_THRESHOLD_N = 20; // foot "on the ground" above this force
   const MIN_SWING_S = 0.1; // foot must be off the ground this long before a heel strike
   const STEADY_WINDOW = 7; // strides in the rolling median
@@ -84,6 +87,49 @@
     return total / values.length;
   }
 
+  /** Samples per second, from the time column (rounded: 100 for PhysioNet files). */
+  function samplingRate(time) {
+    return Math.round((time.length - 1) / (time[time.length - 1] - time[0]));
+  }
+
+  /** Savitzky-Golay smoothing, 11-point window, quadratic (scipy savgol_filter(x, 11, 2), mode "interp"). */
+  function savgolSmooth(values) {
+    const n = values.length;
+    const half = 5;
+    const out = new Array(n);
+    // Inside: weighted average with the fixed weights (267 - 15 k^2) / 1287, k = -5..5
+    for (let i = half; i < n - half; i++) {
+      let total = 0;
+      for (let k = -half; k <= half; k++) total += ((267 - 15 * k * k) / 1287) * values[i + k];
+      out[i] = total;
+    }
+    // Ends: fit one parabola to the first (last) 11 points and read off the edge points
+    const fitEdge = (offset, positions) => {
+      const window = values.slice(offset, offset + 2 * half + 1);
+      const coeffs = fitParabola(window);
+      positions.forEach((t) => { out[offset + t] = coeffs[0] + coeffs[1] * t + coeffs[2] * t * t; });
+    };
+    fitEdge(0, [0, 1, 2, 3, 4]);
+    fitEdge(n - 2 * half - 1, [6, 7, 8, 9, 10]);
+    return out;
+  }
+
+  /** Least-squares parabola a + b t + c t^2 through points (t = 0, 1, ..., y.length - 1). */
+  function fitParabola(y) {
+    const s = [0, 0, 0, 0, 0]; // sums of t^0 .. t^4
+    const r = [0, 0, 0]; // sums of y, t y, t^2 y
+    y.forEach((v, t) => {
+      for (let p = 0; p < 5; p++) s[p] += t ** p;
+      for (let p = 0; p < 3; p++) r[p] += v * t ** p;
+    });
+    // Solve the 3 x 3 normal equations [[s0 s1 s2][s1 s2 s3][s2 s3 s4]] x = r (Cramer's rule)
+    const m = [[s[0], s[1], s[2]], [s[1], s[2], s[3]], [s[2], s[3], s[4]]];
+    const det = (a) => a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1])
+      - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0]) + a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]);
+    const d = det(m);
+    return [0, 1, 2].map((col) => det(m.map((row, i) => row.map((v, j) => (j === col ? r[i] : v)))) / d);
+  }
+
   /** First index where sorted[index] >= value (numpy searchsorted, side="left"). */
   function searchSortedLeft(sorted, value) {
     let low = 0;
@@ -124,9 +170,9 @@
   // ---- Gait events (same rules as src/gait.py) ---------------------------------
 
   /** Heel strikes: force rises above 20 N after at least 0.1 s off the ground. Returns sample indices. */
-  function detectHeelStrikes(force) {
+  function detectHeelStrikes(force, fs) {
     const offGround = force.map((f) => f <= CONTACT_THRESHOLD_N);
-    const nSwing = Math.trunc(MIN_SWING_S * SAMPLING_RATE_HZ);
+    const nSwing = Math.trunc(MIN_SWING_S * fs);
     const strikes = [];
     for (let i = 1; i < force.length; i++) {
       if (!(offGround[i - 1] && !offGround[i])) continue; // not a rise
@@ -161,23 +207,25 @@
     return mask;
   }
 
-  /** [start time, end time] of every steady stride of one foot. */
-  function steadyStrideBounds(force, time) {
-    const strikes = detectHeelStrikes(force).map((i) => time[i]);
+  /** [start time, end time] of every steady stride of one foot.
+   *  rule "steady" (default): the steady-segment rule; "all": every complete stride
+   *  (for short clips already cut from steady walking, too short for runs of 10). */
+  function steadyStrideBounds(force, time, rule = "steady") {
+    const strikes = detectHeelStrikes(force, samplingRate(time)).map((i) => time[i]);
     const strides = strikes.slice(1).map((t, k) => t - strikes[k]);
-    const mask = steadyStrideMask(strides);
+    const mask = rule === "all" ? strides.map(() => true) : steadyStrideMask(strides);
     const bounds = [];
     mask.forEach((keep, k) => { if (keep) bounds.push([strikes[k], strikes[k + 1]]); });
     return bounds;
   }
 
   /** [first, last) sample indices of the stance in a stride, or null (as in src/cop.py). */
-  function stanceEnd(force, time, start, end) {
+  function stanceEnd(force, time, start, end, fs) {
     const first = searchSortedLeft(time, start);
     const strideEnd = searchSortedLeft(time, end);
     for (let i = first; i < strideEnd; i++) {
       if (force[i] <= CONTACT_THRESHOLD_N) {
-        const duration = (i - first) / SAMPLING_RATE_HZ;
+        const duration = (i - first) / fs;
         return duration >= MIN_STANCE_S && duration <= MAX_STANCE_S ? [first, i] : null;
       }
     }
@@ -218,54 +266,75 @@
     return channels.map((c) => interp(grid, segmentTime, trial[c].slice(first, last + 1)));
   }
 
+  /** Mean of left + right force where exactly one foot is loaded (samples first..last-1), or NaN. */
+  function singleSupportForce(left, right, first, last) {
+    let total = 0;
+    let count = 0;
+    for (let i = first; i < last; i++) {
+      const l = left[i] > CONTACT_THRESHOLD_N;
+      const r = right[i] > CONTACT_THRESHOLD_N;
+      if (l !== r) { total += left[i] + right[i]; count++; }
+    }
+    return count ? total / count : NaN;
+  }
+
   // ---- The analysis --------------------------------------------------------------
 
-  /** Template JSON (from demo/build_template.py) -> {"16": channels x 100, "6": channels x 100}. */
+  /** Template JSON (from demo/build_template.py) -> {version: {L: channels x 100, R: channels x 100}}. */
   function loadTemplates(json) {
-    return { "16": json.template_16.values, "6": json.template_6.values };
+    const out = {};
+    for (const version of Object.keys(VERSIONS)) out[version] = { L: json[version].L.values, R: json[version].R.values };
+    return out;
   }
 
   /**
    * Analyse one trial.
    * options.bodyWeightKg: divide forces by body weight (kg x 9.81) if given, else keep newtons.
-   * options.templates: from loadTemplates(); needed for template deviation (body weight required).
+   * options.templates: from loadTemplates(); needed for template deviation (no body weight needed).
+   * options.strideRule: "steady" (default, full steady-segment rule) or "all" (every complete stride).
    * Returns {strides: [one object per stride], summary: {version: {metric: median}}}.
    */
   function analyzeTrial(trial, options = {}) {
     const bodyWeightKg = options.bodyWeightKg || null;
     const scale = bodyWeightKg ? bodyWeightKg * GRAVITY : 1;
     const templates = options.templates || null;
+    const rule = options.strideRule || "steady";
     const time = trial.time;
+    const fs = samplingRate(time);
     const strides = [];
 
     for (const version of Object.keys(VERSIONS)) {
       const channels = VERSIONS[version].L.concat(VERSIONS[version].R);
+      const leftForce = sumChannels(trial, VERSIONS[version].L);
+      const rightForce = sumChannels(trial, VERSIONS[version].R);
       for (const foot of ["L", "R"]) {
         const sensors = VERSIONS[version][foot];
-        const force = sumChannels(trial, sensors);
+        const force = foot === "L" ? leftForce : rightForce;
         const q = apPosition(trial, sensors);
         const heel = trial[sensors[0]];
-        for (const [start, end] of steadyStrideBounds(force, time)) {
-          const stance = stanceEnd(force, time, start, end);
+        for (const [start, end] of steadyStrideBounds(force, time, rule)) {
+          const stance = stanceEnd(force, time, start, end, fs);
           if (stance === null) continue;
           const [first, last] = stance;
-          const qStance = resampleStance(q, first, last);
+          const qStance = savgolSmooth(resampleStance(q, first, last));
           const heelStance = resampleStance(heel, first, last);
           let deviation = null;
-          if (foot === "L" && templates && bodyWeightKg) {
+          const support = singleSupportForce(leftForce, rightForce, searchSortedLeft(time, start),
+            searchSortedLeft(time, end));
+          if (templates && Number.isFinite(support) && support > 0) {
             const stride = resampleStride(trial, channels, start, end);
-            const template = templates[version];
+            const template = templates[version][foot];
             let total = 0;
             for (let c = 0; c < stride.length; c++) {
               for (let t = 0; t < STRIDE_POINTS; t++) {
-                const d = stride[c][t] / scale - template[c][t];
+                const d = stride[c][t] / support - template[c][t];
                 total += d * d;
               }
             }
             deviation = total / (stride.length * STRIDE_POINTS);
           }
           strides.push({
-            version, foot, heel_strike: start,
+            version, foot, heel_strike: start, heel_strike_end: end, toe_off: time[last],
             stride_time: end - start,
             cadence: 120 / (end - start),
             swing_time: end - time[last],
@@ -291,7 +360,7 @@
   }
 
   const GaitEngine = { parseTrialText, analyzeTrial, loadTemplates, steadyStrideBounds, detectHeelStrikes,
-    VERSIONS, METRICS, SENSOR_POSITIONS };
+    sumChannels, apPosition, samplingRate, savgolSmooth, VERSIONS, METRICS, SENSOR_POSITIONS, COLUMNS };
   if (typeof module !== "undefined" && module.exports) module.exports = GaitEngine; // Node.js
   else root.GaitEngine = GaitEngine; // web page
 })(typeof window !== "undefined" ? window : this);

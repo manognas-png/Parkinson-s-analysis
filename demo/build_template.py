@@ -1,6 +1,7 @@
-"""Build the healthy-stride templates for the demo: the average control stride
-(left heel strike to left heel strike, 100 points, body-weight units) for the
-16-sensor and 6-sensor versions. Saved to demo/template.json for demo/engine.js.
+"""Build the healthy-stride templates for the demo: the average control stride for each
+foot (heel strike to heel strike of that foot, 100 points), for the 16- and 6-sensor
+versions. Each stride is divided by its own single-support force, so no body weight is
+needed. Saved to demo/template.json for demo/engine.js.
 
 Run from the project root:  python demo/build_template.py
 """
@@ -13,40 +14,33 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.demo_metrics import STRIDE_POINTS, VERSIONS, template_channels, template_strides  # noqa: E402
-from src.load import DATA_DIR, FILENAME_PATTERN, load_demographics, load_trial, parse_filename  # noqa: E402
+from src.load import DATA_DIR, FILENAME_PATTERN, load_trial, parse_filename  # noqa: E402
 
 OUTPUT = Path(__file__).resolve().parent / "template.json"
 
 
 def main():
-    weights = load_demographics().set_index("subject_id")["weight_kg"]
     files = sorted(p for p in DATA_DIR.glob("*Co*_01.txt") if FILENAME_PATTERN.match(p.name))
-    strides = {version: [] for version in VERSIONS}
-    used = []
+    strides = {version: {"L": [], "R": []} for version in VERSIONS}
     for path in files:
-        subject = parse_filename(path)["subject_id"]
-        weight = weights.get(subject, np.nan)
-        if not np.isfinite(weight):
-            continue  # template needs body-weight units
         trial = load_trial(path)
         for version in VERSIONS:
-            strides[version].append(template_strides(trial, version, weight))
-        used.append(subject)
+            for foot in ["L", "R"]:
+                strides[version][foot].append(template_strides(trial, version, foot))
 
     template = {
-        "description": "Average control stride (left heel strike to left heel strike), "
-                       "force / body weight, built from all control _01 trials with a recorded weight",
+        "description": "Average control stride per foot (heel strike to heel strike of that foot), each stride "
+                       "divided by its single-support force; all control _01 trials",
         "n_points": STRIDE_POINTS,
-        "subjects": used,
+        "subjects": [parse_filename(p)["subject_id"] for p in files],
     }
     for version in VERSIONS:
-        stacked = np.concatenate(strides[version])
-        template[f"template_{version}"] = {
-            "channels": template_channels(version),
-            "n_strides": int(len(stacked)),
-            "values": np.round(stacked.mean(axis=0), 10).tolist(),
-        }
-        print(f"{version}-sensor template: {len(stacked)} strides from {len(used)} controls")
+        template[version] = {"channels": template_channels(version)}
+        for foot in ["L", "R"]:
+            stacked = np.concatenate(strides[version][foot])
+            template[version][foot] = {"n_strides": int(len(stacked)),
+                                       "values": np.round(stacked.mean(axis=0), 10).tolist()}
+            print(f"{version}-sensor template, {foot} foot: {len(stacked)} strides from {len(files)} controls")
     OUTPUT.write_text(json.dumps(template))
     print(f"saved {OUTPUT}")
 

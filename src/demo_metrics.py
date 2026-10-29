@@ -5,10 +5,16 @@ Uses the same rules as the analysis code: heel strikes and steady strides from
 src/gait.py (summed foot force crossing 20 N, minimum swing 0.1 s, steady-segment rule),
 stance from heel strike to the first sample at or below 20 N (kept if 0.3-2.0 s, as in
 src/cop.py). Detection always runs on newtons; reported forces are divided by body
-weight when it is given.
+weight when it is given. Centre-of-pressure traces are smoothed with the same
+Savitzky-Golay filter as Step 11 (11 points, order 2).
+
+Template deviation needs no body weight: each stride is divided by its own
+single-support force (mean summed force while exactly one foot is loaded), an
+insole-based estimate of body weight. There is one template per foot.
 """
 
 import numpy as np
+from scipy.signal import savgol_filter
 
 from src.features_math import SENSOR_POSITIONS
 from src.gait import CONTACT_THRESHOLD_N, resample_strides, steady_stride_bounds
@@ -53,6 +59,26 @@ def stance_end(force, time, start, end, threshold=CONTACT_THRESHOLD_N):
     return (first, last) if MIN_STANCE_S <= duration <= MAX_STANCE_S else None
 
 
+def single_support_force(left, right, first, last, threshold=CONTACT_THRESHOLD_N):
+    """Mean of left + right force over samples first..last-1 where exactly one foot is loaded."""
+    l, r = left[first:last], right[first:last]
+    single = (l > threshold) != (r > threshold)
+    return float((l + r)[single].mean()) if single.any() else np.nan
+
+
+def normalized_stride(trial, version, start, end):
+    """One stride of all version sensors, 100 points, divided by its single-support force (or None)."""
+    time = trial["time"].to_numpy()
+    left = trial[VERSIONS[version]["L"]].to_numpy().T.sum(axis=0)
+    right = trial[VERSIONS[version]["R"]].to_numpy().T.sum(axis=0)
+    first, last = np.searchsorted(time, [start, end])
+    support = single_support_force(left, right, first, last)
+    if not np.isfinite(support) or support <= 0:
+        return None
+    channels = trial[template_channels(version)].to_numpy().T
+    return resample_strides(channels, time, [(start, end)], STRIDE_POINTS)[0] / support
+
+
 def resample_stance(values, first, last):
     """Linear interpolation of samples first..last-1 onto 101 points (0-100 % of stance)."""
     grid = np.linspace(first, last - 1, STANCE_POINTS)
@@ -62,8 +88,8 @@ def resample_stance(values, first, last):
 def trial_metrics(trial, body_weight_kg=None, templates=None):
     """Per-stride metrics for both versions and both feet.
 
-    trial: DataFrame with time and L1..R8. templates: {"16": array, "6": array}
-    (channels x 100, body-weight units) or None. Returns a list of dicts.
+    trial: DataFrame with time and L1..R8. templates: {version: {"L": array, "R": array}}
+    (channels x 100, single-support units) or None. Returns a list of dicts.
     """
     time = trial["time"].to_numpy()
     scale = body_weight_kg * GRAVITY if body_weight_kg else 1.0
@@ -74,18 +100,18 @@ def trial_metrics(trial, body_weight_kg=None, templates=None):
             force = signals.sum(axis=0)
             q = ap_position(signals, sensors)
             heel = signals[0]
-            channels = trial[template_channels(version)].to_numpy().T
             for start, end in steady_stride_bounds(force, time):
                 stance = stance_end(force, time, start, end)
                 if stance is None:
                     continue
                 first, last = stance
-                q_stance = resample_stance(q, first, last)
+                q_stance = savgol_filter(resample_stance(q, first, last), 11, 2)
                 heel_stance = resample_stance(heel, first, last)
                 deviation = np.nan
-                if foot == "L" and templates is not None and body_weight_kg:
-                    stride = resample_strides(channels, time, [(start, end)], STRIDE_POINTS)[0] / scale
-                    deviation = float(np.mean((stride - templates[version]) ** 2))
+                if templates is not None:
+                    stride = normalized_stride(trial, version, start, end)
+                    if stride is not None:
+                        deviation = float(np.mean((stride - templates[version][foot]) ** 2))
                 rows.append({
                     "version": version, "foot": foot, "heel_strike": float(start),
                     "stride_time": float(end - start),
@@ -99,10 +125,33 @@ def trial_metrics(trial, body_weight_kg=None, templates=None):
     return rows
 
 
-def template_strides(trial, version, body_weight_kg):
-    """Steady strides (left heel strike to left heel strike) of all version sensors / body weight."""
+def template_strides(trial, version, foot):
+    """Steady strides of one foot (heel strike to heel strike), all version sensors,
+    each divided by its single-support force."""
     time = trial["time"].to_numpy()
-    left = trial[VERSIONS[version]["L"]].to_numpy().T.sum(axis=0)
-    channels = trial[template_channels(version)].to_numpy().T
-    bounds = steady_stride_bounds(left, time)
-    return resample_strides(channels, time, bounds, STRIDE_POINTS) / (body_weight_kg * GRAVITY)
+    force = trial[VERSIONS[version][foot]].to_numpy().T.sum(axis=0)
+    strides = [normalized_stride(trial, version, start, end) for start, end in steady_stride_bounds(force, time)]
+    strides = [s for s in strides if s is not None]
+    return np.array(strides).reshape(len(strides), len(template_channels(version)), STRIDE_POINTS)
+
+
+def stance_curves(trial, body_weight_kg=None):
+    """Mean stance curves per version (feet averaged): heel load (/ body weight if given) and smoothed COP."""
+    time = trial["time"].to_numpy()
+    scale = body_weight_kg * GRAVITY if body_weight_kg else 1.0
+    curves = {}
+    for version, feet in VERSIONS.items():
+        heels, cops = [], []
+        for foot, sensors in feet.items():
+            signals = trial[sensors].to_numpy().T
+            force = signals.sum(axis=0)
+            q = ap_position(signals, sensors)
+            for start, end in steady_stride_bounds(force, time):
+                stance = stance_end(force, time, start, end)
+                if stance is None:
+                    continue
+                heels.append(resample_stance(signals[0], *stance) / scale)
+                cops.append(savgol_filter(resample_stance(q, *stance), 11, 2))
+        curves[version] = {"heel": np.mean(heels, axis=0) if heels else None,
+                           "cop": np.mean(cops, axis=0) if cops else None}
+    return curves

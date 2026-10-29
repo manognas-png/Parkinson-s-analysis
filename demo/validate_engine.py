@@ -2,7 +2,8 @@
 
 Runs both on 10 trials (5 controls, 5 PD, all three studies), matches strides by
 version, foot and heel-strike time, and reports the largest Python - JavaScript
-difference for every metric. One extra run without body weight tests the newton path.
+difference for every metric. One extra run without body weight tests the newton path
+(template deviation needs no body weight and must match there too).
 
 Needs Node.js on the PATH:  module load node.js/22.14.0
 Run from the project root:  python demo/validate_engine.py
@@ -65,7 +66,7 @@ def main():
         sys.exit("ERROR: Node.js not found. Run:  module load node.js/22.14.0")
     print(subprocess.run([node, "--version"], capture_output=True, text=True).stdout.strip(), "|", node)
     template_json = json.loads((DEMO / "template.json").read_text())
-    templates = {v: np.array(template_json[f"template_{v}"]["values"]) for v in ["16", "6"]}
+    templates = {v: {f: np.array(template_json[v][f]["values"]) for f in ["L", "R"]} for v in ["16", "6"]}
     weights = load_demographics().set_index("subject_id")["weight_kg"]
 
     rows = []
