@@ -1,0 +1,5 @@
+variant,strides_total,strides_median_per_subject,subjects_without_strides,subjects_with_same_count_as_real
+real 6 sensors,12790,78.0,1,165
+"(a) adjacent pads, midfoot split 50/50",12790,78.0,1,165
+(b) non-overlapping pads,12790,78.0,1,165
+(c) stacked layers,12597,78.0,1,115
