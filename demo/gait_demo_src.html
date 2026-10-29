@@ -111,7 +111,7 @@
     pressure (where the weight is concentrated) while that foot is on the ground.
     <b>Trace:</b> left-foot heel force (green) and forefoot force (purple) over the last 4 seconds, in body
     weights on the same scale for both people (for a file without a weight, body weight is estimated from the
-    insole); dashed lines mark detected heel strikes. <b>Cards:</b> the large number is the median of all
+    insole and calibrated; see “About these numbers”); dashed lines mark detected heel strikes. <b>Cards:</b> the large number is the median of all
     left-foot strides so far, with the latest stride below it, next to the group medians of all healthy people
     and all people with Parkinson’s in the dataset.
   </p>
@@ -137,14 +137,15 @@
     cross-validated results in the project report are the reference values; this page demonstrates the analysis
     pipeline, which reproduces the project’s Python code to rounding precision.</p>
     <ul>
-      <li>The deviation score divides each stride by an insole-estimated body weight (the force while only one
-      foot is on the ground), so its values differ from the deviation scores in the project’s autoencoder
-      analysis (Step 9).</li>
+      <li>The deviation score divides each stride by an insole-estimated body weight (see the next point), so its
+      values differ from the deviation scores in the project’s autoencoder analysis (Step 9).</li>
+      <li id="weight-note"></li>
       <li>The example pairs were chosen to be typical of each group, but individuals vary and the groups overlap:
       many healthy people load the heel less than many people with Parkinson’s.</li>
       <li>With 6 sensors, the centre of pressure is a coarse estimate (only three points per foot), so an
       individual’s value can differ from the group pattern.</li>
-      <li>Deviation values for 16 and 6 sensors are on different scales; compare them only within one version.</li>
+      <li>Deviation values for 16 and 6 sensors come from different sensor sets and templates; compare them only
+      within one version.</li>
     </ul>
   </section>
 

@@ -33,10 +33,12 @@ for (const weightKg of [null, 70]) {
   const cards = core.cardValues(panel, "16", panel.duration, demo.medians);
   check(left.length >= 5 && Math.abs(panel.duration - 10) < 0.5 && panel.bodyWeightN > 400 && panel.bodyWeightN < 1200,
     `loaded file, weight ${weightKg}: ${panel.fs} Hz, ${panel.duration.toFixed(2)} s window, ${left.length} left strides, ` +
-    `body weight used ${Math.round(panel.bodyWeightN)} N${panel.weightEstimated ? " (single-support estimate)" : ""}, ` +
+    `body weight used ${Math.round(panel.bodyWeightN)} N${panel.weightEstimated ? " (calibrated insole estimate)" : ""}, ` +
     `cards: ${cards.map((c) => c.value).join(" | ")}`);
 }
 
+const note = core.weightNote(JSON.parse(fs.readFileSync(path.join(__dirname, "template.json"), "utf8")));
+check(/within \d+ %/.test(note), `about-note sentence: ${note}`);
 check(core.centreOfPressure({ L1: [100], L8: [100] }, ["L1", "L8"], engine.SENSOR_POSITIONS, 0).y === 0,
   "centre of pressure halfway between heel (y -800) and toe (y +800) sensors");
 console.log(failures ? `${failures} FAILED` : "ALL PASSED");

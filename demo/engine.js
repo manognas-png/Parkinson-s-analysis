@@ -6,8 +6,9 @@
  *   2. find each stance (heel strike -> foot off the ground) and stretch it to 0-100 %,
  *   3. compute per-stride metrics, in a 16-sensor and a 6-sensor version.
  * Centre-of-pressure traces are smoothed (Savitzky-Golay, 11 points, order 2, as in Step 11).
- * Template deviation divides each stride by its own single-support force, so it needs no
- * body weight; there is one template per foot.
+ * Template deviation divides each stride by an insole weight estimate (mean of left + right
+ * total force over complete steady strides, times a calibration factor stored with the
+ * template), so it needs no body weight; there is one template per foot.
  *
  * The same file works in a web page (it creates window.GaitEngine) and in Node.js
  * (require("./engine.js")), so it can be tested against Python before it goes in a browser.
@@ -266,24 +267,31 @@
     return channels.map((c) => interp(grid, segmentTime, trial[c].slice(first, last + 1)));
   }
 
-  /** Mean of left + right force where exactly one foot is loaded (samples first..last-1), or NaN. */
-  function singleSupportForce(left, right, first, last) {
+  /** Insole weight estimate (newtons, uncalibrated): mean of left + right total force over all
+   *  samples of the complete steady left strides. Over whole gait cycles the feet carry body weight. */
+  function weightEstimateRaw(trial, version, rule = "steady") {
+    const time = trial.time;
+    const left = sumChannels(trial, VERSIONS[version].L);
+    const right = sumChannels(trial, VERSIONS[version].R);
     let total = 0;
     let count = 0;
-    for (let i = first; i < last; i++) {
-      const l = left[i] > CONTACT_THRESHOLD_N;
-      const r = right[i] > CONTACT_THRESHOLD_N;
-      if (l !== r) { total += left[i] + right[i]; count++; }
+    for (const [start, end] of steadyStrideBounds(left, time, rule)) {
+      const first = searchSortedLeft(time, start);
+      const last = searchSortedLeft(time, end);
+      for (let i = first; i < last; i++) { total += left[i] + right[i]; count++; }
     }
     return count ? total / count : NaN;
   }
 
   // ---- The analysis --------------------------------------------------------------
 
-  /** Template JSON (from demo/build_template.py) -> {version: {L: channels x 100, R: channels x 100}}. */
+  /** Template JSON (from demo/build_template.py) -> {version: {L, R}, calibration: {version: factor}}. */
   function loadTemplates(json) {
-    const out = {};
-    for (const version of Object.keys(VERSIONS)) out[version] = { L: json[version].L.values, R: json[version].R.values };
+    const out = { calibration: {} };
+    for (const version of Object.keys(VERSIONS)) {
+      out[version] = { L: json[version].L.values, R: json[version].R.values };
+      out.calibration[version] = json.weight_estimate ? json.weight_estimate.calibration[version] : 1;
+    }
     return out;
   }
 
@@ -292,7 +300,8 @@
    * options.bodyWeightKg: divide forces by body weight (kg x 9.81) if given, else keep newtons.
    * options.templates: from loadTemplates(); needed for template deviation (no body weight needed).
    * options.strideRule: "steady" (default, full steady-segment rule) or "all" (every complete stride).
-   * Returns {strides: [one object per stride], summary: {version: {metric: median}}}.
+   * Returns {strides: [one object per stride], summary: {version: {metric: median}},
+   *          weightEstimateN: {version: calibrated insole weight estimate in newtons}}.
    */
   function analyzeTrial(trial, options = {}) {
     const bodyWeightKg = options.bodyWeightKg || null;
@@ -302,11 +311,15 @@
     const time = trial.time;
     const fs = samplingRate(time);
     const strides = [];
+    const weightEstimateN = {};
 
     for (const version of Object.keys(VERSIONS)) {
       const channels = VERSIONS[version].L.concat(VERSIONS[version].R);
       const leftForce = sumChannels(trial, VERSIONS[version].L);
       const rightForce = sumChannels(trial, VERSIONS[version].R);
+      const calibration = templates ? templates.calibration[version] : 1;
+      const weightN = weightEstimateRaw(trial, version, rule) * calibration;
+      weightEstimateN[version] = weightN;
       for (const foot of ["L", "R"]) {
         const sensors = VERSIONS[version][foot];
         const force = foot === "L" ? leftForce : rightForce;
@@ -319,15 +332,13 @@
           const qStance = savgolSmooth(resampleStance(q, first, last));
           const heelStance = resampleStance(heel, first, last);
           let deviation = null;
-          const support = singleSupportForce(leftForce, rightForce, searchSortedLeft(time, start),
-            searchSortedLeft(time, end));
-          if (templates && Number.isFinite(support) && support > 0) {
+          if (templates && Number.isFinite(weightN) && weightN > 0) {
             const stride = resampleStride(trial, channels, start, end);
             const template = templates[version][foot];
             let total = 0;
             for (let c = 0; c < stride.length; c++) {
               for (let t = 0; t < STRIDE_POINTS; t++) {
-                const d = stride[c][t] / support - template[c][t];
+                const d = stride[c][t] / weightN - template[c][t];
                 total += d * d;
               }
             }
@@ -356,10 +367,11 @@
         summary[version][metric] = values.length ? median(values) : null;
       }
     }
-    return { strides, summary };
+    return { strides, summary, weightEstimateN };
   }
 
   const GaitEngine = { parseTrialText, analyzeTrial, loadTemplates, steadyStrideBounds, detectHeelStrikes,
+    weightEstimateRaw,
     sumChannels, apPosition, samplingRate, savgolSmooth, VERSIONS, METRICS, SENSOR_POSITIONS, COLUMNS };
   if (typeof module !== "undefined" && module.exports) module.exports = GaitEngine; // Node.js
   else root.GaitEngine = GaitEngine; // web page

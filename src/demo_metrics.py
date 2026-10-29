@@ -8,9 +8,10 @@ src/cop.py). Detection always runs on newtons; reported forces are divided by bo
 weight when it is given. Centre-of-pressure traces are smoothed with the same
 Savitzky-Golay filter as Step 11 (11 points, order 2).
 
-Template deviation needs no body weight: each stride is divided by its own
-single-support force (mean summed force while exactly one foot is loaded), an
-insole-based estimate of body weight. There is one template per foot.
+Template deviation needs no body weight: each stride is divided by an insole-based
+weight estimate, the mean of left + right total force over complete steady strides
+(on average over whole gait cycles the feet carry body weight), times a calibration
+factor per version that corrects insole measurement bias. One template per foot.
 """
 
 import numpy as np
@@ -59,24 +60,26 @@ def stance_end(force, time, start, end, threshold=CONTACT_THRESHOLD_N):
     return (first, last) if MIN_STANCE_S <= duration <= MAX_STANCE_S else None
 
 
-def single_support_force(left, right, first, last, threshold=CONTACT_THRESHOLD_N):
-    """Mean of left + right force over samples first..last-1 where exactly one foot is loaded."""
-    l, r = left[first:last], right[first:last]
-    single = (l > threshold) != (r > threshold)
-    return float((l + r)[single].mean()) if single.any() else np.nan
-
-
-def normalized_stride(trial, version, start, end):
-    """One stride of all version sensors, 100 points, divided by its single-support force (or None)."""
+def weight_estimate_raw(trial, version):
+    """Mean of left + right total force (version sensors) over all samples of the complete
+    steady left strides, in newtons, uncalibrated. NaN if there are no steady strides."""
     time = trial["time"].to_numpy()
     left = trial[VERSIONS[version]["L"]].to_numpy().T.sum(axis=0)
     right = trial[VERSIONS[version]["R"]].to_numpy().T.sum(axis=0)
-    first, last = np.searchsorted(time, [start, end])
-    support = single_support_force(left, right, first, last)
-    if not np.isfinite(support) or support <= 0:
+    pieces = []
+    for start, end in steady_stride_bounds(left, time):
+        first, last = np.searchsorted(time, [start, end])
+        pieces.append((left + right)[first:last])
+    return float(np.concatenate(pieces).mean()) if pieces else np.nan
+
+
+def normalized_stride(trial, version, start, end, weight_n):
+    """One stride of all version sensors, 100 points, divided by the weight estimate (or None)."""
+    if not np.isfinite(weight_n) or weight_n <= 0:
         return None
+    time = trial["time"].to_numpy()
     channels = trial[template_channels(version)].to_numpy().T
-    return resample_strides(channels, time, [(start, end)], STRIDE_POINTS)[0] / support
+    return resample_strides(channels, time, [(start, end)], STRIDE_POINTS)[0] / weight_n
 
 
 def resample_stance(values, first, last):
@@ -85,16 +88,18 @@ def resample_stance(values, first, last):
     return np.interp(grid, np.arange(first, last), values[first:last])
 
 
-def trial_metrics(trial, body_weight_kg=None, templates=None):
+def trial_metrics(trial, body_weight_kg=None, templates=None, calibration=None):
     """Per-stride metrics for both versions and both feet.
 
     trial: DataFrame with time and L1..R8. templates: {version: {"L": array, "R": array}}
-    (channels x 100, single-support units) or None. Returns a list of dicts.
+    (channels x 100, in estimated-weight units) or None. calibration: {version: factor}
+    applied to the insole weight estimate (default 1). Returns a list of dicts.
     """
     time = trial["time"].to_numpy()
     scale = body_weight_kg * GRAVITY if body_weight_kg else 1.0
     rows = []
     for version, feet in VERSIONS.items():
+        weight_n = weight_estimate_raw(trial, version) * (calibration or {}).get(version, 1.0)
         for foot, sensors in feet.items():
             signals = trial[sensors].to_numpy().T
             force = signals.sum(axis=0)
@@ -109,7 +114,7 @@ def trial_metrics(trial, body_weight_kg=None, templates=None):
                 heel_stance = resample_stance(heel, first, last)
                 deviation = np.nan
                 if templates is not None:
-                    stride = normalized_stride(trial, version, start, end)
+                    stride = normalized_stride(trial, version, start, end, weight_n)
                     if stride is not None:
                         deviation = float(np.mean((stride - templates[version][foot]) ** 2))
                 rows.append({
@@ -125,12 +130,14 @@ def trial_metrics(trial, body_weight_kg=None, templates=None):
     return rows
 
 
-def template_strides(trial, version, foot):
+def template_strides(trial, version, foot, calibration=None):
     """Steady strides of one foot (heel strike to heel strike), all version sensors,
-    each divided by its single-support force."""
+    divided by the calibrated insole weight estimate."""
     time = trial["time"].to_numpy()
     force = trial[VERSIONS[version][foot]].to_numpy().T.sum(axis=0)
-    strides = [normalized_stride(trial, version, start, end) for start, end in steady_stride_bounds(force, time)]
+    weight_n = weight_estimate_raw(trial, version) * (calibration or {}).get(version, 1.0)
+    strides = [normalized_stride(trial, version, start, end, weight_n)
+               for start, end in steady_stride_bounds(force, time)]
     strides = [s for s in strides if s is not None]
     return np.array(strides).reshape(len(strides), len(template_channels(version)), STRIDE_POINTS)
 

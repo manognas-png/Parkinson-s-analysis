@@ -23,10 +23,12 @@
     const engine = options.engine;
     let windowTrial = trial;
     let fullSummary = null;
+    let fullWeightN = null;
     if (options.rule === "steady") {
       // A full recording: analyse it all, then animate 10 s starting at the first steady left stride.
       const full = engine.analyzeTrial(trial, { bodyWeightKg: options.weightKg, templates: options.templates });
       fullSummary = full.summary;
+      fullWeightN = full.weightEstimateN["16"];
       const first = full.strides.find((s) => s.version === "16" && s.foot === "L");
       const start = first ? first.heel_strike : trial.time[0];
       windowTrial = sliceTrial(trial, start, start + WINDOW_S, engine.COLUMNS);
@@ -36,27 +38,16 @@
     });
     const fs = engine.samplingRate(windowTrial.time);
     const duration = windowTrial.time[windowTrial.time.length - 1] - windowTrial.time[0];
-    // Body weight in newtons: from the weight box if given, otherwise estimated from the insole
-    // (mean force while exactly one foot is on the ground, the same rule as the deviation score).
-    const bodyWeightN = options.weightKg ? options.weightKg * 9.81 : singleSupportEstimate(trial, engine);
+    // Body weight in newtons: from the weight box if given, otherwise the engine's calibrated insole
+    // estimate (mean left + right force over steady strides; whole recording for loaded files).
+    const estimateN = fullWeightN !== null ? fullWeightN : analysis.weightEstimateN["16"];
+    const bodyWeightN = options.weightKg ? options.weightKg * 9.81 : estimateN;
     return {
       label: options.label, meta: options.meta, group: options.group, weightKg: options.weightKg,
       bodyWeightN, weightEstimated: !options.weightKg,
       trial: windowTrial, fs, duration, analysis, fullSummary,
       forceMax: percentile(allSensorValues(windowTrial, engine), 0.97),
     };
-  }
-
-  /** Mean summed force (all 16 sensors) while exactly one foot carries more than 20 N. */
-  function singleSupportEstimate(trial, engine) {
-    const left = engine.sumChannels(trial, engine.VERSIONS["16"].L);
-    const right = engine.sumChannels(trial, engine.VERSIONS["16"].R);
-    let total = 0;
-    let count = 0;
-    for (let i = 0; i < left.length; i++) {
-      if ((left[i] > 20) !== (right[i] > 20)) { total += left[i] + right[i]; count++; }
-    }
-    return count ? total / count : 1;
   }
 
   /** Largest heel or forefoot force (in body weights) in a panel's clip, for a shared y-axis. */
@@ -177,8 +168,23 @@
     return total > 20 ? { x: x / total, y: y / total } : null;
   }
 
+  /** One sentence for "About these numbers": how weight is estimated and how accurate it is. */
+  function weightNote(templateJson) {
+    const w = templateJson.weight_estimate;
+    const a16 = w.accuracy["16"];
+    const calibrated = w.accuracy["16"].calibrated || w.accuracy["6"].calibrated;
+    return "Without a recorded weight, body weight is estimated as the average total insole force over complete "
+      + "steady strides (over whole steps the feet carry the body’s weight)"
+      + (calibrated ? `, multiplied by a calibration factor (${w.calibration["16"].toFixed(2)} for 16 sensors, `
+        + `${w.calibration["6"].toFixed(2)} for 6) learned from participants not shown here, which corrects the `
+        + "insoles’ measurement bias" : "")
+      + `; in cross-validation over ${a16.n_subjects} participants the 16-sensor estimate was within `
+      + `${a16.median_abs_error_pct.toFixed(0)} % of the recorded weight for half of them and within `
+      + `${a16.p90_abs_error_pct.toFixed(0)} % for 90 % of them.`;
+  }
+
   const DemoCore = { makePanel, sliceTrial, sampleAt, latestStride, cardValues, mixColor, centreOfPressure, percentile,
-    singleSupportEstimate, traceMax };
+    traceMax, weightNote };
   if (typeof module !== "undefined" && module.exports) { module.exports = DemoCore; return; }
 
   // ===================== Page code (runs in the browser) =====================
@@ -486,6 +492,7 @@
       showPair(state.pair);
     });
     window.addEventListener("resize", drawGroupCurves);
+    $("weight-note").textContent = weightNote(window.TEMPLATE_JSON);
     showPair(0);
     drawGroupCurves();
     requestAnimationFrame(frame);

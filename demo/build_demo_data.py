@@ -36,15 +36,17 @@ TRIAL_COLUMNS = ["time", *[f"{f}{i}" for f in "LR" for i in range(1, 9)], "L_tot
 
 
 def load_templates():
+    """Templates per version and foot, and the insole weight calibration factors."""
     data = json.loads((DEMO / "template.json").read_text())
-    return {v: {f: np.array(data[v][f]["values"]) for f in "LR"} for v in VERSIONS}
+    templates = {v: {f: np.array(data[v][f]["values"]) for f in "LR"} for v in VERSIONS}
+    return templates, data["weight_estimate"]["calibration"]
 
 
-def subject_summary(path, weight_kg, templates):
+def subject_summary(path, weight_kg, templates, calibration):
     """Per-subject medians of the card metrics and mean stance curves, per version."""
     trial = load_trial(path)
     weight = weight_kg if np.isfinite(weight_kg) else None
-    rows = pd.DataFrame(trial_metrics(trial, weight, templates))
+    rows = pd.DataFrame(trial_metrics(trial, weight, templates, calibration))
     summary = {"subject_id": parse_filename(path)["subject_id"]}
     for version in VERSIONS:
         part = rows[rows["version"] == version] if len(rows) else rows
@@ -106,10 +108,11 @@ def main():
     start = time.time()
     demographics = load_demographics()
     weights = demographics.set_index("subject_id")["weight_kg"]
-    templates = load_templates()
+    templates, calibration = load_templates()
     files = sorted(p for p in DATA_DIR.glob("*_01.txt") if FILENAME_PATTERN.match(p.name))
     results = Parallel(n_jobs=N_JOBS)(
-        delayed(subject_summary)(p, weights.get(parse_filename(p)["subject_id"], np.nan), templates) for p in files)
+        delayed(subject_summary)(p, weights.get(parse_filename(p)["subject_id"], np.nan), templates, calibration)
+        for p in files)
     meta = pd.DataFrame([parse_filename(p) for p in files])[["subject_id", "study", "group"]]
     table = meta.merge(pd.DataFrame([s for s, _ in results]), on="subject_id").merge(
         demographics[["subject_id", "age", "speed_01", "weight_kg", "hoehn_yahr"]], on="subject_id", how="left")

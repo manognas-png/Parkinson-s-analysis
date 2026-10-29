@@ -67,6 +67,7 @@ def main():
     print(subprocess.run([node, "--version"], capture_output=True, text=True).stdout.strip(), "|", node)
     template_json = json.loads((DEMO / "template.json").read_text())
     templates = {v: {f: np.array(template_json[v][f]["values"]) for f in ["L", "R"]} for v in ["16", "6"]}
+    calibration = template_json["weight_estimate"]["calibration"]
     weights = load_demographics().set_index("subject_id")["weight_kg"]
 
     rows = []
@@ -74,9 +75,10 @@ def main():
         path = DATA_DIR / f"{subject}_01.txt"
         trial = load_trial(path)
         weight = float(weights[subject])
-        rows += compare(trial_metrics(trial, weight, templates), run_javascript(node, path, weight), subject)
+        rows += compare(trial_metrics(trial, weight, templates, calibration), run_javascript(node, path, weight),
+                        subject)
     trial = load_trial(DATA_DIR / f"{NO_WEIGHT_TRIAL}_01.txt")
-    rows += compare(trial_metrics(trial, None, templates),
+    rows += compare(trial_metrics(trial, None, templates, calibration),
                     run_javascript(node, DATA_DIR / f"{NO_WEIGHT_TRIAL}_01.txt", None),
                     f"{NO_WEIGHT_TRIAL} (newtons)")
 
