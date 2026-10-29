@@ -1,0 +1,150 @@
+<!doctype html>
+<!--
+  SOURCE for demo/gait_demo.html. Do not open this file directly: run
+      python demo/build_demo.py
+  which replaces the /*__...__*/ placeholders with engine.js, app.js and the data,
+  producing ONE self-contained file that works offline.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gait Insole Demo</title>
+<style>
+  /* ---- Colours: one set for light mode, one for dark mode ---- */
+  :root {
+    --bg: #fcfcfb; --surface: #ffffff; --ink: #0b0b0b; --ink-2: #52514e; --ink-3: #8a8983;
+    --line: #e4e3df; --control: #2a78d6; --pd: #eb6834; --heel: #1baf7a; --fore: #6250d6;
+    --ramp-low: #eef3fb; --ramp-high: #0b3c8c; --insole: #f4f3ef;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1a19; --surface: #232322; --ink: #f0efec; --ink-2: #c3c2b7; --ink-3: #8f8e86;
+      --line: #3a3936; --control: #3987e5; --pd: #d95926; --heel: #199e70; --fore: #9085e9;
+      --ramp-low: #2a3445; --ramp-high: #8fbaf2; --insole: #2c2c2a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1200px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 17px; margin: 0 0 8px; }
+  .summary { color: var(--ink-2); margin: 0 0 16px; max-width: 860px; }
+  .caption { color: var(--ink-2); font-size: 13px; margin: 6px 0 0; }
+  .card-box { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+
+  /* ---- Control bar ---- */
+  .controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin-bottom: 16px; }
+  .controls label { font-size: 13px; color: var(--ink-2); display: flex; align-items: center; gap: 6px; }
+  select, button, input[type=number] { font: inherit; font-size: 14px; color: var(--ink); background: var(--surface);
+         border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; }
+  button { cursor: pointer; }
+  button.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .toggle button:first-child { border-radius: 6px 0 0 6px; }
+  .toggle button:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
+  input[type=number] { width: 80px; }
+  #file-status { font-size: 13px; color: var(--ink-2); }
+
+  /* ---- Two people side by side ---- */
+  .people { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .people { grid-template-columns: 1fr; } }
+  .person-title { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .person-title .tag { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 10px; color: #fff; }
+  .person-title .meta { font-size: 13px; color: var(--ink-2); }
+  svg.feet { width: 100%; height: auto; display: block; max-height: 330px; }
+  canvas { width: 100%; display: block; }
+  canvas.trace { height: 140px; margin-top: 6px; }
+
+  /* ---- Metric cards ---- */
+  .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px; }
+  .metric { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .metric .name { font-size: 12px; color: var(--ink-2); }
+  .metric .value { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .metric .ref { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .metric .ref b { font-weight: 600; }
+
+  /* ---- Group panel ---- */
+  .group { margin-top: 16px; }
+  .group-plots { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .group-plots { grid-template-columns: 1fr; } }
+  canvas.curve { height: 220px; }
+  .legend { display: flex; gap: 14px; font-size: 13px; color: var(--ink-2); flex-wrap: wrap; }
+  .legend span::before { content: ""; display: inline-block; width: 12px; height: 3px; margin-right: 6px;
+         vertical-align: middle; background: var(--c); }
+
+  .about { margin-top: 16px; font-size: 14px; color: var(--ink-2); }
+  footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 13px; color: var(--ink-2); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Gait insole demo: Parkinson’s disease vs healthy walking</h1>
+  <p class="summary">
+    Pressure sensors in a shoe insole show how a person puts weight on the foot. Here, a healthy person and a
+    person with Parkinson’s disease of similar age and walking speed walk side by side. Watch how the person with
+    Parkinson’s lands with <b>less weight on the heel</b> and shifts pressure forward earlier, and try the
+    <b>6-sensor</b> version to see that a much simpler insole still captures it.
+  </p>
+
+  <div class="controls card-box">
+    <label>Pair <select id="pair"></select></label>
+    <button id="play" aria-label="Play or pause">Pause</button>
+    <label>Speed <input id="speed" type="range" min="0.25" max="2" step="0.25" value="1"> <span id="speed-value">1×</span></label>
+    <span class="toggle" role="group" aria-label="Number of sensors">
+      <button id="v16" class="active">16 sensors</button><button id="v6">6 sensors</button>
+    </span>
+    <label>Load recording <input id="file" type="file" accept=".txt"></label>
+    <label>Body weight (kg, optional) <input id="weight" type="number" min="20" max="250" step="0.5"></label>
+    <button id="clear-file" hidden>Back to demo pair</button>
+    <span id="file-status"></span>
+  </div>
+
+  <div class="people">
+    <section class="card-box" id="panel-left"></section>
+    <section class="card-box" id="panel-right"></section>
+  </div>
+  <p class="caption">
+    <b>Footprints:</b> each circle is one sensor; darker blue means more force. The dot shows the centre of
+    pressure (where the weight is concentrated) while that foot is on the ground.
+    <b>Trace:</b> left-foot heel force (green) and forefoot force (purple) over the last 4 seconds; dashed lines
+    mark detected heel strikes. <b>Cards:</b> values for the most recent left-foot stride, next to the group
+    medians of all healthy people and all people with Parkinson’s in the dataset.
+  </p>
+
+  <section class="card-box group">
+    <h2>All participants: how weight moves through the step</h2>
+    <div class="legend" id="group-legend"></div>
+    <div class="group-plots">
+      <div><canvas class="curve" id="curve-heel"></canvas>
+        <p class="caption">Heel load through the stance phase (0% = heel strike, 100% = foot leaves the ground), as a
+        fraction of body weight. People with Parkinson’s carry less weight on the heel in early stance (shaded 5–15%).</p></div>
+      <div><canvas class="curve" id="curve-cop"></canvas>
+        <p class="caption">Centre of pressure from heel (0) to toe (1). In Parkinson’s it moves forward earlier,
+        a sign of flatter, less heel-first foot contact. Bands show ± 1 standard deviation across people.</p></div>
+    </div>
+  </section>
+
+  <section class="about card-box">
+    <h2>About these numbers</h2>
+    <p>The healthy template (used for “deviation from typical”) is the average stride of <b>all</b> healthy
+    participants, including the ones shown, so it is slightly flattering for them. The demo clips are 10 seconds
+    at 50 samples per second, so their values differ a little from whole-recording analyses. The
+    cross-validated results in the project report are the reference values; this page demonstrates the analysis
+    pipeline, which reproduces the project’s Python code to rounding precision.</p>
+  </section>
+
+  <footer>
+    Data: PhysioNet “Gait in Parkinson’s Disease” (Goldberger et al., <i>Circulation</i> 2000; Yogev et al. 2005;
+    Hausdorff et al. 2007; Frenkel-Toledo et al. 2005). Centre-of-pressure features after Sifat et al. 2026
+    (arXiv:2609.22956).<br>
+    <b>Research demonstration only, not a diagnostic tool.</b>
+  </footer>
+</main>
+
+<script>/*__ENGINE_JS__*/</script>
+<script>window.TEMPLATE_JSON = /*__TEMPLATE_JSON__*/;</script>
+<script>window.DEMO_DATA = /*__DEMO_DATA_JSON__*/;</script>
+<script>/*__APP_JS__*/</script>
+</body>
+</html>
