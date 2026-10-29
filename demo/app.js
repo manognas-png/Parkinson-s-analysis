@@ -36,11 +36,37 @@
     });
     const fs = engine.samplingRate(windowTrial.time);
     const duration = windowTrial.time[windowTrial.time.length - 1] - windowTrial.time[0];
+    // Body weight in newtons: from the weight box if given, otherwise estimated from the insole
+    // (mean force while exactly one foot is on the ground, the same rule as the deviation score).
+    const bodyWeightN = options.weightKg ? options.weightKg * 9.81 : singleSupportEstimate(trial, engine);
     return {
       label: options.label, meta: options.meta, group: options.group, weightKg: options.weightKg,
+      bodyWeightN, weightEstimated: !options.weightKg,
       trial: windowTrial, fs, duration, analysis, fullSummary,
       forceMax: percentile(allSensorValues(windowTrial, engine), 0.97),
     };
+  }
+
+  /** Mean summed force (all 16 sensors) while exactly one foot carries more than 20 N. */
+  function singleSupportEstimate(trial, engine) {
+    const left = engine.sumChannels(trial, engine.VERSIONS["16"].L);
+    const right = engine.sumChannels(trial, engine.VERSIONS["16"].R);
+    let total = 0;
+    let count = 0;
+    for (let i = 0; i < left.length; i++) {
+      if ((left[i] > 20) !== (right[i] > 20)) { total += left[i] + right[i]; count++; }
+    }
+    return count ? total / count : 1;
+  }
+
+  /** Largest heel or forefoot force (in body weights) in a panel's clip, for a shared y-axis. */
+  function traceMax(panel, version) {
+    const fore = version === "16" ? ["L6", "L7", "L8"] : ["L7"];
+    let max = 0;
+    for (let i = 0; i < panel.trial.time.length; i++) {
+      max = Math.max(max, panel.trial.L1[i], fore.reduce((a, s) => a + panel.trial[s][i], 0));
+    }
+    return max / panel.bodyWeightN;
   }
 
   /** Cut [start, end) seconds out of a recording and restart its clock at 0. */
@@ -80,12 +106,16 @@
     return latest;
   }
 
-  /** Text for the four cards: this stride's value and the group medians. */
+  /** Text for the four cards: median of all strides so far (main), latest stride (small), group medians. */
   function cardValues(panel, version, t, medians) {
-    const stride = latestStride(panel, version, t);
-    const bw = Boolean(panel.weightKg);
+    const done = panel.analysis.strides.filter((s) => s.version === version && s.foot === "L" && s.heel_strike_end <= t);
+    const stride = done.length ? done[done.length - 1] : null;
+    // Heel load in body weights: the engine already divided by the entered weight; otherwise divide
+    // its newtons by the single-support estimate.
+    const toBw = (metric, v) => (metric === "heel_load_early" && !panel.weightKg ? v / panel.bodyWeightN : v);
+    const bwLabel = panel.weightKg ? "× BW" : "× BW (est.)";
     const fmt = {
-      heel_load_early: (v) => (bw ? `${v.toFixed(2)} × BW` : `${Math.round(v)} N`),
+      heel_load_early: (v) => `${v.toFixed(2)} ${bwLabel}`,
       cop_05_15: (v) => v.toFixed(2),
       cadence: (v) => `${Math.round(v)}`,
       template_deviation: (v) => (v * 1000).toFixed(2),
@@ -97,15 +127,16 @@
       template_deviation: "Deviation from healthy template (×10⁻³)",
     };
     return Object.keys(fmt).map((metric) => {
-      const value = stride ? stride[metric] : null;
-      const control = medians[version].Control[metric];
-      const pd = medians[version].PD[metric];
-      const comparable = metric !== "heel_load_early" || bw;
+      const values = done.map((s) => s[metric]).filter((v) => v !== null && v !== undefined && !Number.isNaN(v))
+        .map((v) => toBw(metric, v));
+      const latest = stride ? stride[metric] : null;
+      const hasLatest = latest !== null && latest !== undefined && !Number.isNaN(latest);
       return {
         metric, name: names[metric],
-        value: value === null || value === undefined || Number.isNaN(value) ? "—" : fmt[metric](value),
-        reference: comparable ? `healthy <b>${fmtRef(metric, control)}</b> · PD <b>${fmtRef(metric, pd)}</b>`
-          : "enter body weight to compare with the groups",
+        value: values.length ? fmt[metric](median(values)) : "waiting for first step…",
+        latest: hasLatest ? `latest stride: ${fmt[metric](toBw(metric, latest))} · ${values.length} strides so far` : "",
+        reference: `group medians: healthy <b>${fmtRef(metric, medians[version].Control[metric])}</b> · ` +
+          `PD <b>${fmtRef(metric, medians[version].PD[metric])}</b>`,
       };
     });
 
@@ -116,6 +147,12 @@
       if (metric === "template_deviation") return (v * 1000).toFixed(2);
       return v.toFixed(2);
     }
+  }
+
+  function median(values) {
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
   }
 
   /** Mix two hex colours: f = 0 gives a, f = 1 gives b. */
@@ -140,7 +177,8 @@
     return total > 20 ? { x: x / total, y: y / total } : null;
   }
 
-  const DemoCore = { makePanel, sliceTrial, sampleAt, latestStride, cardValues, mixColor, centreOfPressure, percentile };
+  const DemoCore = { makePanel, sliceTrial, sampleAt, latestStride, cardValues, mixColor, centreOfPressure, percentile,
+    singleSupportEstimate, traceMax };
   if (typeof module !== "undefined" && module.exports) { module.exports = DemoCore; return; }
 
   // ===================== Page code (runs in the browser) =====================
@@ -257,21 +295,21 @@
     const fore = state.version === "16" ? ["L6", "L7", "L8"] : ["L7"];
     const trial = panel.trial;
     const t0 = t - TRACE_S;
-    const pad = { l: 34, r: 8, t: 16, b: 18 };
+    const pad = { l: 40, r: 8, t: 18, b: 18 };
     const x = (time) => pad.l + ((time - t0) / TRACE_S) * (w - pad.l - pad.r);
-    let yMax = 1;
-    for (let i = 0; i < trial.time.length; i++) {
-      yMax = Math.max(yMax, trial.L1[i], fore.reduce((a, s) => a + trial[s][i], 0));
-    }
-    const y = (v) => h - pad.b - (v / yMax) * (h - pad.t - pad.b);
+    // Same y-axis for both people, in body weights (forces divided by each person's weight)
+    const yMax = Math.max(...state.panels.map((p) => traceMax(p, state.version))) * 1.05;
+    const bw = panel.bodyWeightN;
+    const y = (v) => h - pad.b - (v / bw / yMax) * (h - pad.t - pad.b);
 
     ctx.strokeStyle = css("--line");
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(pad.l, h - pad.b); ctx.lineTo(w - pad.r, h - pad.b); ctx.stroke();
     ctx.fillStyle = css("--ink-3");
     ctx.font = "11px system-ui, sans-serif";
-    ctx.fillText(`${Math.round(yMax)} N`, 2, pad.t + 4);
-    ctx.fillText("0", 20, h - pad.b);
+    ctx.fillText(`${yMax.toFixed(2)}`, 2, pad.t + 4);
+    ctx.fillText("0", 26, h - pad.b);
+    ctx.fillText(panel.weightEstimated ? "× body weight (estimated)" : "× body weight", pad.l + 4, pad.t - 5);
 
     // heel strikes of the left foot (dashed)
     ctx.setLineDash([3, 3]);
@@ -297,16 +335,25 @@
       }
       ctx.stroke();
     }
-    ctx.fillStyle = css("--heel"); ctx.fillText("heel", w - 92, 12);
-    ctx.fillStyle = css("--fore"); ctx.fillText(state.version === "16" ? "forefoot (6–8)" : "forefoot (7)", w - 62, 12);
+    // Legend, right-aligned using measured text widths so nothing is cut off
+    const foreLabel = state.version === "16" ? "forefoot (sensors 6–8)" : "forefoot (sensor 7)";
+    const heelLabel = "heel (sensor 1)";
+    const gap = 14;
+    const foreWidth = ctx.measureText(foreLabel).width;
+    const heelWidth = ctx.measureText(heelLabel).width;
+    ctx.fillStyle = css("--fore");
+    ctx.fillText(foreLabel, w - pad.r - foreWidth, pad.t - 5);
+    ctx.fillStyle = css("--heel");
+    ctx.fillText(heelLabel, w - pad.r - foreWidth - gap - heelWidth, pad.t - 5);
   }
 
   function drawCards(k, panel, t) {
     const box = document.getElementById(`cards-${k}`);
     if (!box) return;
     const html = cardValues(panel, state.version, t, DATA.medians).map((c) =>
-      `<div class="metric"><div class="name">${c.name}</div><div class="value">${c.value}</div>
-       <div class="ref">${c.reference}</div></div>`).join("");
+      `<div class="metric"><div class="name">${c.name}</div>
+       <div class="value${c.latest ? "" : " waiting"}">${c.value}</div>
+       <div class="latest">${c.latest}</div><div class="ref">${c.reference}</div></div>`).join("");
     if (box.dataset.last !== html) { box.innerHTML = html; box.dataset.last = html; } // only redraw when a stride changes
   }
 

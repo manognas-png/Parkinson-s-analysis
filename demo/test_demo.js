@@ -17,9 +17,11 @@ for (const [subject, w] of Object.entries(demo.windows)) {
   for (const version of ["16", "6"]) {
     const left = panel.analysis.strides.filter((s) => s.version === version && s.foot === "L");
     const cards = core.cardValues(panel, version, panel.duration, demo.medians);
-    check(left.length >= 5 && cards.every((c) => c.value !== "—"),
+    const start = core.cardValues(panel, version, 0, demo.medians);
+    check(left.length >= 5 && cards.every((c) => !c.value.startsWith("waiting") && c.latest)
+      && start.every((c) => c.value.startsWith("waiting")),
       `${subject} ${version}-sensor: ${panel.fs} Hz, ${panel.duration.toFixed(1)} s, ${left.length} left strides, ` +
-      `cards: ${cards.map((c) => c.value).join(" | ")}`);
+      `trace max ${core.traceMax(panel, version).toFixed(2)} BW, running medians: ${cards.map((c) => c.value).join(" | ")}`);
   }
 }
 
@@ -29,8 +31,9 @@ for (const weightKg of [null, 70]) {
   const panel = core.makePanel(trial, { engine, templates, weightKg, rule: "steady", label: "GaPt24_01.txt" });
   const left = panel.analysis.strides.filter((s) => s.version === "16" && s.foot === "L");
   const cards = core.cardValues(panel, "16", panel.duration, demo.medians);
-  check(left.length >= 5 && Math.abs(panel.duration - 10) < 0.5,
+  check(left.length >= 5 && Math.abs(panel.duration - 10) < 0.5 && panel.bodyWeightN > 400 && panel.bodyWeightN < 1200,
     `loaded file, weight ${weightKg}: ${panel.fs} Hz, ${panel.duration.toFixed(2)} s window, ${left.length} left strides, ` +
+    `body weight used ${Math.round(panel.bodyWeightN)} N${panel.weightEstimated ? " (single-support estimate)" : ""}, ` +
     `cards: ${cards.map((c) => c.value).join(" | ")}`);
 }
 
