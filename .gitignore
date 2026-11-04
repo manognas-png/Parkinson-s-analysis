@@ -47,3 +47,7 @@ slurm/logs/*
 
 # ---- Secrets ----
 .env
+
+# Firmware build outputs
+firmware/.pio/
+firmware/host/build/

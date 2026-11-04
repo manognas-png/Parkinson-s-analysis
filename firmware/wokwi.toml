@@ -1,0 +1,5 @@
+# Wokwi simulator settings: which compiled firmware to load (built with: pio run -d firmware)
+[wokwi]
+version = 1
+firmware = '.pio/build/pico/firmware.uf2'
+elf = '.pio/build/pico/firmware.elf'

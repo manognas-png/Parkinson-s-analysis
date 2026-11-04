@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "author": "pd-gait-networks",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "wokwi-pi-pico", "id": "pico", "top": 0, "left": 0, "attrs": {} },
+    { "type": "board-ssd1306", "id": "oled", "top": -105, "left": 115, "attrs": { "i2cAddress": "0x3c" } },
+    { "type": "wokwi-potentiometer", "id": "knob", "top": 170, "left": 150, "attrs": {} },
+    { "type": "wokwi-pushbutton", "id": "button", "top": 190, "left": -140, "attrs": { "color": "blue" } },
+    { "type": "wokwi-led", "id": "led", "top": 20, "left": -130, "attrs": { "color": "red" } },
+    { "type": "wokwi-resistor", "id": "r1", "top": 100, "left": -110, "rotate": 90, "attrs": { "value": "220" } }
+  ],
+  "connections": [
+    [ "pico:GP0", "$serialMonitor:RX", "", [] ],
+    [ "pico:GP1", "$serialMonitor:TX", "", [] ],
+    [ "oled:SDA", "pico:GP4", "green", [] ],
+    [ "oled:SCL", "pico:GP5", "blue", [] ],
+    [ "oled:VCC", "pico:3V3", "red", [] ],
+    [ "oled:GND", "pico:GND.8", "black", [] ],
+    [ "knob:SIG", "pico:GP26", "orange", [] ],
+    [ "knob:VCC", "pico:3V3", "red", [] ],
+    [ "knob:GND", "pico:GND.8", "black", [] ],
+    [ "button:1.l", "pico:GP15", "purple", [] ],
+    [ "button:2.l", "pico:GND.4", "black", [] ],
+    [ "r1:2", "pico:GP16", "red", [] ],
+    [ "r1:1", "led:A", "red", [] ],
+    [ "led:C", "pico:GND.2", "black", [] ]
+  ]
+}

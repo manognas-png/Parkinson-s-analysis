@@ -144,7 +144,8 @@ def ridge_fit_predict(F, stride_subject, target, train_subjects, test_subjects):
         model = ridge_search().fit(F[rows], target[stride_subject[rows]], groups=stride_subject[rows])
     test_rows = np.isin(stride_subject, test_subjects)
     predictions = np.full(len(F), np.nan)
-    predictions[test_rows] = model.predict(F[test_rows])
+    if test_rows.any():  # nothing to predict when fitting a final model on all subjects
+        predictions[test_rows] = model.predict(F[test_rows])
     return subject_medians(predictions, stride_subject, test_subjects)
 
 
