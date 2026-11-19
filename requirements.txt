@@ -1,35 +1,29 @@
-# Python 3.11 (.venv)
-# Install with: pip install -r requirements.txt
+# Python 3.11. Install with:  pip install -r requirements.txt
+# Results in this repo were produced with numpy 2.4.6, pandas 3.1.0, scipy 1.17.1,
+# scikit-learn 1.9.1, torch 2.14.1, matplotlib 3.11.2, joblib 1.6.0.
 
-# Core numerics / data handling
+# Numerics and data handling
 numpy>=1.26
 pandas>=2.1
 scipy>=1.11
 
 # Machine learning
 scikit-learn>=1.3
+joblib>=1.3         # parallel cross-validation folds
 threadpoolctl>=3.0  # limits BLAS threads (src/__init__.py)
 
-# Neural networks: standard build, runs on CPU and uses an NVIDIA GPU if one is
-# available (includes ~2.5 GB of CUDA libraries)
+# Neural networks (Step 9 autoencoder, Step 10 CNN). Standard build: runs on CPU and
+# uses an NVIDIA GPU if present (includes ~2.5 GB of CUDA libraries). For a smaller
+# CPU-only install:  pip install torch --index-url https://download.pytorch.org/whl/cpu
 torch>=2.2
-
-# Graph / network analysis
-networkx>=3.2
 
 # Plotting
 matplotlib>=3.8
-seaborn>=0.13
 
-# Notebooks
-jupyterlab>=4.0
-ipykernel>=6.25
-
-# Reading demographics.xls (optional; demographics.txt works without it)
-xlrd>=2.0
-
-# Parallel jobs in the scripts
-joblib>=1.3
-
-# Building the Pico firmware (firmware/README.md); downloads the Pico compiler on first build
+# Optional: building the Raspberry Pi Pico firmware (firmware/README.md).
+# Downloads the Pico compiler (a few hundred MB) on the first build.
 platformio>=6.1
+
+# Not Python packages, needed only for some steps:
+#   gcc      firmware/validate_firmware.py compiles the C model for the host
+#   Node.js  demo/test_demo.js and demo/run_engine.js check the JavaScript demo engine

@@ -1,5 +1,5 @@
 /* Demo recordings (6 sensors L1, L4, L7, R1, R4, R7; int16, 0.1 N; 100 Hz), PhysioNet
-   Gait in Parkinson's Disease. Written by firmware/export_model.py; do not edit. */
+   Gait in Parkinson's Disease. Written by firmware/make_demo.py; do not edit. */
 #ifndef DEMO_RECORDINGS_H
 #define DEMO_RECORDINGS_H
 #include <stdint.h>

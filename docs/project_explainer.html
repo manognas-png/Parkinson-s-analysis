@@ -1,0 +1,597 @@
+<title>Gait Project Explained</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@500;600&display=swap">
+<style>
+/* Layout: a lab notebook. Sticky contents rail on wide screens, one reading column (~68ch) beside it; single column on phones. */
+:root {
+  --paper: #f6f8f7;
+  --ink: #1d2a2b;
+  --muted: #586a6b;
+  --rule: #d5dfdd;
+  --panel: #ebf1ef;
+  --code-bg: #e6eeec;
+  --accent: #0f6b66;      /* teal: headings, links, controls */
+  --pd: #9a3f6b;          /* plum: Parkinson's */
+  --ctrl: #1f7a5c;        /* green: controls */
+  --warn: #8a5a00;
+  --font-display: "Fraunces", Georgia, serif;
+  --font-body: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --step--1: 0.875rem; --step-0: 1.0625rem; --step-1: 1.25rem; --step-2: 1.6rem; --step-3: 2.3rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #121a1b; --ink: #dfe8e6; --muted: #9db0ae; --rule: #2c3b3c; --panel: #1a2526;
+    --code-bg: #1c2829; --accent: #5cc3b9; --pd: #e08ab4; --ctrl: #6fd0a8; --warn: #e3b25a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #121a1b; --ink: #dfe8e6; --muted: #9db0ae; --rule: #2c3b3c; --panel: #1a2526;
+  --code-bg: #1c2829; --accent: #5cc3b9; --pd: #e08ab4; --ctrl: #6fd0a8; --warn: #e3b25a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  background: var(--paper); color: var(--ink);
+  font-family: var(--font-body); font-size: var(--step-0); line-height: 1.62;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 4rem;
+}
+.shell { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 3rem; }
+@media (max-width: 900px) { .shell { grid-template-columns: minmax(0, 1fr); gap: 0; } nav.toc { display: none; } }
+nav.toc { position: sticky; top: env(safe-area-inset-top, 0px); align-self: start; max-height: 100vh; overflow-y: auto; padding-block: 2.2rem 2rem; font-family: var(--font-ui); font-size: 0.82rem; }
+nav.toc .label { text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-size: 0.72rem; margin-bottom: 0.6rem; }
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.15rem; counter-reset: toc; }
+nav.toc a { color: var(--ink); text-decoration: none; display: block; padding: 0.25rem 0.5rem; border-radius: 4px; }
+nav.toc a:hover, nav.toc a:focus-visible { background: var(--panel); color: var(--accent); outline: none; }
+nav.toc .n { color: var(--muted); font-variant-numeric: tabular-nums; display: inline-block; width: 1.6em; }
+main { min-width: 0; max-width: 46rem; }
+header.top { padding-block: 2.6rem 1.4rem; border-bottom: 1px solid var(--rule); margin-bottom: 1rem; }
+header.top .eyebrow { font-family: var(--font-ui); text-transform: uppercase; letter-spacing: 0.1em; font-size: 0.74rem; color: var(--accent); }
+h1 { font-family: var(--font-display); font-size: var(--step-3); line-height: 1.12; margin: 0.4rem 0 0.8rem; text-wrap: balance; font-weight: 700; }
+h2 { font-family: var(--font-display); font-size: var(--step-2); line-height: 1.2; margin: 3.2rem 0 0.8rem; text-wrap: balance; font-weight: 600; scroll-margin-top: 1rem; }
+h2 .num { color: var(--accent); font-variant-numeric: tabular-nums; margin-right: 0.5rem; }
+h3 { font-family: var(--font-ui); font-size: var(--step-1); font-weight: 600; margin: 2rem 0 0.5rem; text-wrap: balance; }
+h4 { font-family: var(--font-ui); font-size: 1rem; font-weight: 600; margin: 1.4rem 0 0.3rem; }
+p, li { max-width: 68ch; }
+a { color: var(--accent); }
+.lede { font-size: var(--step-1); color: var(--muted); line-height: 1.5; margin: 0; }
+code { font-family: var(--font-mono); font-size: 0.86em; background: var(--code-bg); padding: 0.08em 0.3em; border-radius: 3px; }
+pre { background: var(--code-bg); border-radius: 6px; padding: 0.9rem 1rem; overflow-x: auto; font-size: 0.84rem; line-height: 1.5; margin: 1rem 0; }
+pre code { background: none; padding: 0; font-size: inherit; }
+pre .c { color: var(--muted); font-style: italic; }
+.file { font-family: var(--font-ui); font-size: 0.78rem; color: var(--muted); margin: 1rem 0 -0.7rem; }
+.math { font-family: var(--font-body); font-style: italic; background: var(--panel); border-left: 3px solid var(--accent); padding: 0.7rem 1rem; margin: 1rem 0; overflow-x: auto; font-size: 1.05rem; line-height: 1.8; }
+.math .tag { font-style: normal; font-family: var(--font-ui); font-size: 0.75rem; color: var(--muted); display: block; line-height: 1.3; }
+.tablewrap { overflow-x: auto; margin: 1rem 0 1.2rem; }
+table { border-collapse: collapse; font-size: 0.92rem; min-width: 100%; }
+th, td { text-align: left; padding: 0.45rem 0.7rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-family: var(--font-ui); font-weight: 600; font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.hl td { background: var(--panel); font-weight: 600; }
+.pd { color: var(--pd); font-weight: 600; }
+.ctrl { color: var(--ctrl); font-weight: 600; }
+.read { border: 1px solid var(--rule); border-radius: 6px; padding: 0.4rem 1rem 0.8rem; margin: 1.4rem 0; }
+.read .head { font-family: var(--font-ui); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); margin: 0.6rem 0 0.2rem; }
+.read ul { padding-left: 1.2rem; margin: 0.3rem 0; }
+.why { border-left: 3px solid var(--warn); padding: 0.2rem 1rem; margin: 1.2rem 0; }
+.why .head { font-family: var(--font-ui); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--warn); margin: 0.4rem 0 0.1rem; }
+dl.terms { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.4rem 1.2rem; margin: 1rem 0; }
+dl.terms dt { font-family: var(--font-ui); font-weight: 600; font-size: 0.92rem; }
+dl.terms dd { margin: 0; }
+@media (max-width: 560px) { dl.terms { grid-template-columns: minmax(0, 1fr); } dl.terms dd { margin-bottom: 0.6rem; } }
+.pipeline { font-family: var(--font-mono); font-size: 0.82rem; background: var(--panel); border-radius: 6px; padding: 1rem; overflow-x: auto; white-space: pre; line-height: 1.55; }
+footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--rule); color: var(--muted); font-size: var(--step--1); }
+</style>
+
+<div class="shell">
+<nav class="toc" aria-label="Contents">
+  <div class="label">Contents</div>
+  <ol>
+    <li><a href="#map"><span class="n">0</span>The whole project</a></li>
+    <li><a href="#data"><span class="n">1</span>Data</a></li>
+    <li><a href="#prep"><span class="n">2</span>Preprocessing</a></li>
+    <li><a href="#svd"><span class="n">3</span>SVD</a></li>
+    <li><a href="#networks"><span class="n">4</span>Sensor networks</a></li>
+    <li><a href="#dmd"><span class="n">5</span>DMD</a></li>
+    <li><a href="#speed"><span class="n">6</span>The speed problem</a></li>
+    <li><a href="#eval"><span class="n">7</span>Evaluating fairly</a></li>
+    <li><a href="#ml"><span class="n">8</span>Classical ML</a></li>
+    <li><a href="#loso"><span class="n">9</span>Leave-one-study-out</a></li>
+    <li><a href="#selection"><span class="n">10</span>Sensor selection</a></li>
+    <li><a href="#dl"><span class="n">11</span>Deep learning</a></li>
+    <li><a href="#insole"><span class="n">12</span>Insole classifier</a></li>
+    <li><a href="#reading"><span class="n">13</span>Reading results</a></li>
+    <li><a href="#limits"><span class="n">14</span>Limits</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="top">
+  <div class="eyebrow">pd-gait-networks · course project · study guide</div>
+  <h1>How the Parkinson's gait project works, step by step</h1>
+  <p class="lede">Every step from the raw insole files to the classifier on the Pico: the maths, the code that does it, why each method was chosen, and how to read the numbers it produced.</p>
+</header>
+
+<!-- 0 -->
+<h2 id="map"><span class="num">0</span>The whole project on one page</h2>
+<p>The question throughout: <strong>can the forces under the feet tell a person with Parkinson's disease (PD) apart from a healthy person of similar age, and which parts of the signal carry that information?</strong> Every step either builds features from the force signals, tests whether they separate the groups, or makes the result fit a cheap device.</p>
+<div class="pipeline">raw files (16 sensors, 100 Hz)
+  └─ preprocessing: heel strikes → strides → steady strides → stride/swing variability
+       ├─ SVD of the 16 × T sensor matrix ........ how many patterns the foot uses
+       ├─ correlation networks ................... which sensors move together
+       ├─ DMD ..................................... rhythm: frequencies, decay, fit
+       └─ speed adjustment ........................ is it PD, or just walking slower?
+  └─ classical ML (logistic, random forest), subject-wise CV + leave-one-study-out
+  └─ sensor selection: QR pivoting (unsupervised) vs greedy by AUC (supervised) → 6 sensors
+  └─ deep learning: conv autoencoder (deviation score), CNN speed regressor
+  └─ insole-only classifier: ridge speed/TUG estimates + template + 3 gait features → logistic
+  └─ int16 storage → C firmware on a Raspberry Pi Pico (Wokwi)</div>
+
+<div class="tablewrap"><table>
+<thead><tr><th>Model (subject-wise cross-validated)</th><th class="num">AUC</th><th>Needs</th></tr></thead>
+<tbody>
+<tr><td>Measured walking speed alone, logistic</td><td class="num">0.771</td><td>a stopwatch</td></tr>
+<tr><td>Gait features from 16 sensors (SVD, network, DMD, swing CV), logistic</td><td class="num">0.727</td><td>full insole</td></tr>
+<tr><td>Gait features + speed + age + sex, logistic</td><td class="num">0.754</td><td>insole + clinic data</td></tr>
+<tr><td>Conv autoencoder deviation score</td><td class="num">0.688</td><td>6 sensors + body weight</td></tr>
+<tr><td>Estimated speed from 6 insole sensors (forces ÷ body weight)</td><td class="num">0.799</td><td>6 sensors + body weight</td></tr>
+<tr class="hl"><td>Insole-only classifier, raw forces (estimated speed + TUG + template + 3 gait features)</td><td class="num">0.812</td><td>6 sensors</td></tr>
+<tr><td>Same, rebuilt with the device's exact steps (runs on the Pico)</td><td class="num">0.814</td><td>6 sensors</td></tr>
+<tr><td>Same classifier, forces divided by body weight</td><td class="num">0.823</td><td>6 sensors + body weight</td></tr>
+<tr><td>Stance centre-of-pressure features (AP-COP10), logistic</td><td class="num">0.869</td><td>16 sensors</td></tr>
+</tbody></table></div>
+<p>AUC 0.5 is guessing, 1.0 is perfect. Every AUC here is the mean over 10 repeats of 5-fold subject-wise cross-validation, so they can be compared directly. (Some result files also give a "pooled" bootstrap AUC, which is a little higher, e.g. 0.884 for COP and 0.842 for the 0.823 model; never compare a pooled value with a mean-over-repeats value.) Section 13 explains how to read every number on this page.</p>
+
+<!-- 1 -->
+<h2 id="data"><span class="num">1</span>The data</h2>
+<p>PhysioNet <em>Gait in Parkinson's Disease</em>: <strong>165 people, <span class="pd">93 with PD</span> and <span class="ctrl">72 controls</span></strong>, from three studies with different protocols:</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Study</th><th>Protocol</th><th class="num">PD</th><th class="num">Control</th></tr></thead>
+<tbody>
+<tr><td>Ga (Yogev 2005)</td><td>overground walking, plus a dual-task walk</td><td class="num">29</td><td class="num">18</td></tr>
+<tr><td>Ju (Hausdorff 2007)</td><td>overground walking (auditory-cue study)</td><td class="num">29</td><td class="num">25</td></tr>
+<tr><td>Si (Frenkel-Toledo 2005)</td><td>treadmill walking</td><td class="num">35</td><td class="num">29</td></tr>
+</tbody></table></div>
+<p>Each person walked for about 2 minutes on insoles with <strong>8 force sensors under each foot</strong> (L1–L8, R1–R8, in newtons), recorded <strong>100 times per second</strong>. A file is a table: column 1 is time, columns 2–17 the 16 sensors, columns 18–19 the total force per foot. Sensors 1–3 sit under the heel, 4–5 the midfoot, 6–8 the forefoot. We used walk <code>_01</code> (normal walking) for everyone, so each person counts once. The demographics file adds age, sex, height, weight, disease severity (Hoehn &amp; Yahr, UPDRS), walking speed and the Timed Up-and-Go (TUG) time.</p>
+<p>Loading is in <code>src/load.py</code>: <code>load_trial</code> reads one file into a pandas table, <code>parse_filename</code> turns <code>GaPt13_01.txt</code> into study Ga, group PD, subject GaPt13, walk 1, and <code>load_demographics</code> fixes the known typos (e.g. <code>Juc010</code> → <code>JuCo10</code>, heights in cm vs m).</p>
+
+<!-- 2 -->
+<h2 id="prep"><span class="num">2</span>Preprocessing: from a force signal to strides</h2>
+
+<h3>2.1 Finding heel strikes</h3>
+<p>When a foot is in the air, its total force is exactly 0 N. A <strong>heel strike</strong> is the moment the force rises above 20 N after the foot has been in the air for at least 0.1 s (a real swing lasts about 0.35 s, so 0.1 s rejects flickers around the threshold).</p>
+<p class="file">src/gait.py</p>
+<pre><code>CONTACT_THRESHOLD_N = 20
+MIN_SWING_S = 0.1
+
+def detect_heel_strikes(force, time, threshold=20, min_swing_s=0.1):
+    off_ground = force &lt;= threshold
+    <span class="c"># sample i is on the ground and sample i-1 was not</span>
+    rises = np.flatnonzero(off_ground[:-1] &amp; ~off_ground[1:]) + 1
+    n_swing = int(min_swing_s * 100)          <span class="c"># 10 samples</span>
+    <span class="c"># keep a rise only if the 10 samples before it were all in the air</span>
+    strikes = [i for i in rises if i &gt;= n_swing and off_ground[i - n_swing:i].all()]
+    return time[strikes]</code></pre>
+
+<h3>2.2 Stride time, swing time and their variability</h3>
+<p>A <strong>stride</strong> is one full gait cycle of a foot: heel strike to the next heel strike of the same foot. Stride time = the difference between consecutive heel strikes (<code>np.diff</code>). <strong>Swing time</strong> is the part of the stride with the foot in the air: last toe-off before the next heel strike, to that heel strike.</p>
+<p>Variability is measured with the <strong>coefficient of variation</strong>:</p>
+<div class="math">CV = 100 · standard deviation / mean&nbsp;&nbsp;(%)<span class="tag">A CV of 4% means stride times typically differ by 4% from the person's average.</span></div>
+<p>PD makes walking less regular. Median swing CV was <span class="ctrl">3.8% in controls</span> and <span class="pd">5.0% in PD</span>.</p>
+
+<h3>2.3 Keeping only steady walking</h3>
+<p>A recording includes starting, stopping and turning, which make strides irregular in everyone. Those would inflate the CV and hide the PD effect, so we keep only <strong>steady</strong> strides:</p>
+<ol>
+<li>For each stride, compute the median of the 7 strides around it (rolling median).</li>
+<li>The stride is steady if it is within ±10% of that median.</li>
+<li>Steady strides that form a run of at least 10 make a segment; drop 2 strides at each end of the segment (the speeding-up / slowing-down edges).</li>
+</ol>
+<pre><code>def steady_stride_mask(strides, window=7, tolerance=0.10, min_run=10, trim=2):
+    local_median = pd.Series(strides).rolling(window, center=True, min_periods=1).median()
+    is_steady = (abs(strides - local_median) &lt;= tolerance * local_median)
+    mask = np.zeros(len(strides), bool)
+    for start, end in runs_of_true(is_steady):
+        if end - start &gt;= min_run:
+            mask[start + trim:end - trim] = True
+    return mask</code></pre>
+<p>On the Pico this same rule runs in whole-number arithmetic (<code>10·|2d − 2m| ≤ 2m</code>, with d the stride length in samples and m the median) so the C code and Python agree exactly, even at the 10% boundary.</p>
+
+<h3>2.4 Resampling each stride to 100 points</h3>
+<p>Strides last different times (about 0.9–1.4 s). To compare their <em>shapes</em>, each stride is stretched or squeezed to exactly 100 points by linear interpolation: point k sits at k% of the gait cycle (0% = heel strike). The stride time is kept separately (as log duration) because resampling throws it away.</p>
+<pre><code>grid = np.linspace(start, end, 100, endpoint=False)     <span class="c"># 100 time points across the stride</span>
+resampled = [np.interp(grid, segment_time, channel) for channel in signals]
+<span class="c"># result: (n_strides, n_sensors, 100), e.g. 6 sensors x 100 = 600 numbers per stride</span></code></pre>
+
+<h3>2.5 Centering and scaling (for SVD and networks)</h3>
+<p>The 16 sensor signals are put in a matrix <strong>X</strong> with 16 rows (sensors) and T columns (samples). Two versions:</p>
+<ul>
+<li><strong>Centered</strong>: subtract each sensor's mean. Sensors keep their size in newtons, so big heel sensors weigh more.</li>
+<li><strong>Standardized</strong>: also divide by each sensor's standard deviation. Every sensor counts equally; this is the correlation view.</li>
+</ul>
+<p>We reported both, because a result that holds in only one version is less convincing.</p>
+<p><strong>Body-weight normalisation</strong> (dividing forces by weight × 9.81) was used in the autoencoder and in one variant of the insole model. The firmware model uses raw newtons, because the device does not know the wearer's weight. The robustness step gave AUC 0.823 with body weight and 0.812 without; the intervals overlap, so the weight-free model gives up little.</p>
+
+<!-- 3 -->
+<h2 id="svd"><span class="num">3</span>SVD: how many movement patterns does the foot use?</h2>
+<h3>The maths</h3>
+<p>Any matrix can be written as a sum of simple "pattern × time course" pieces. The <strong>singular value decomposition</strong> is:</p>
+<div class="math">X = U Σ Vᵀ = σ₁ u₁ v₁ᵀ + σ₂ u₂ v₂ᵀ + … + σ₁₆ u₁₆ v₁₆ᵀ
+<span class="tag">X: 16 sensors × T samples (centered). u<sub>k</sub>: a spatial pattern across the 16 sensors ("mode k"). v<sub>k</sub>: how strongly that pattern is present at each moment. σ<sub>k</sub>: the size of mode k, with σ₁ ≥ σ₂ ≥ … ≥ 0.</span></div>
+<p>The modes are ordered so that mode 1 explains as much of the signal as one pattern can, mode 2 as much of what is left, and so on. The <strong>energy</strong> of the signal (sum of all squared values of X) splits exactly across modes:</p>
+<div class="math">energy fraction of mode k:&nbsp; p<sub>k</sub> = σ<sub>k</sub>² / (σ₁² + … + σ₁₆²)<br>
+effective number of modes:&nbsp; N<sub>eff</sub> = 1 / (p₁² + p₂² + … + p₁₆²)
+<span class="tag">N<sub>eff</sub> = 1 if one mode holds everything, 16 if all modes are equal. It is a smooth way to count "how many patterns matter".</span></div>
+<h3>How we computed it</h3>
+<p>Instead of decomposing the 16 × 12,000 matrix directly, we use the small 16 × 16 matrix X Xᵀ. Since X = UΣVᵀ, X Xᵀ = U Σ² Uᵀ: its eigenvectors are the modes u<sub>k</sub> and its eigenvalues are σ<sub>k</sub>². This is fast and gives identical results.</p>
+<p class="file">src/features_math.py</p>
+<pre><code>def svd(X):
+    eigenvalues, U = np.linalg.eigh(X @ X.T)          <span class="c"># 16 x 16, ascending</span>
+    order = np.argsort(eigenvalues)[::-1]
+    U, s = U[:, order], np.sqrt(np.clip(eigenvalues[order], 0, None))
+    Vt = (U.T @ X) / s[:, None]                       <span class="c"># time courses</span>
+    return U, s, Vt
+
+def energy_fractions(s):  return s**2 / (s**2).sum()
+def effective_n_modes(s): return 1 / np.sum(energy_fractions(s) ** 2)</code></pre>
+<h3>What we found</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Feature (centered, whole walk)</th><th class="num">Control median</th><th class="num">PD median</th><th class="num">P(PD higher)</th></tr></thead>
+<tbody>
+<tr><td>Energy in mode 1</td><td class="num">0.465</td><td class="num">0.517</td><td class="num">0.75</td></tr>
+<tr><td>Effective number of modes</td><td class="num">3.09</td><td class="num">2.75</td><td class="num">0.27</td></tr>
+</tbody></table></div>
+<p>In PD, one pattern dominates more and fewer patterns are used: the foot loads more "all at once", with less of the heel-to-toe roll that separates the sensors in time. Mode 1 is roughly "the whole foot pressing down"; later modes describe the heel-to-forefoot shift.</p>
+<div class="read"><div class="head">How to read it</div>
+<ul><li><strong>P(PD higher)</strong> is the chance that a randomly chosen PD person has a higher value than a randomly chosen control (0.5 = no difference). 0.75 for mode-1 energy is a clear shift; 0.27 for effective modes means PD values are usually <em>lower</em>.</li>
+<li>Look at both the centered and the standardized versions and at each study separately: the effect was strongest in Ga, present in Ju, weak in Si (treadmill).</li></ul></div>
+
+<!-- 4 -->
+<h2 id="networks"><span class="num">4</span>Sensor networks: which sensors move together?</h2>
+<p>Treat each sensor as a node and connect every pair with an edge weighted by how strongly their signals are correlated (absolute Pearson correlation |r|). That gives a 16 × 16 <strong>adjacency matrix A</strong>. Network maths then summarises it:</p>
+<div class="math">Laplacian:&nbsp; L = D − A,&nbsp; D = diag(row sums of A)<br>
+Fiedler value λ₂ = second-smallest eigenvalue of L
+<span class="tag">λ₂ measures how hard it is to cut the network in two: large = tightly connected. Its eigenvector (the Fiedler vector) shows the natural split, which here was heel sensors vs forefoot sensors.</span></div>
+<p>The feature we kept is <strong>heel–forefoot coupling</strong>: the mean |r| between heel sensors (1–3) and forefoot sensors (4–8) of the same foot. In a healthy heel-to-toe roll, the heel unloads as the forefoot loads, so they are only weakly related. Median coupling was <span class="ctrl">0.191</span> vs <span class="pd">0.211</span> in PD (P(PD higher) 0.64): PD feet load heel and forefoot more together, the same story as the SVD. It also survived the speed adjustment (section 6), which made it one of the most trustworthy features.</p>
+
+<!-- 5 -->
+<h2 id="dmd"><span class="num">5</span>DMD: the rhythm of walking</h2>
+<h3>The idea</h3>
+<p><strong>Dynamic Mode Decomposition</strong> looks for the best <em>linear rule</em> that moves the signal one step forward in time:</p>
+<div class="math">x(t + Δt) ≈ A · x(t)
+<span class="tag">x(t): the sensor readings at time t. A: a matrix learned from the data. If this rule holds, everything about the motion is in the eigenvalues and eigenvectors of A.</span></div>
+<p>Each eigenvalue λ of A is a complex number. Write λ = |λ| e<sup>iθ</sup>. Then the matching pattern (a <strong>DMD mode</strong>) oscillates with frequency θ / (2π Δt) Hz and grows (|λ| &gt; 1) or decays (|λ| &lt; 1) by |λ| each step. Walking is a rhythm, so we expect a dominant mode at the stride frequency (about 0.9 Hz) plus its harmonics (1.8, 2.7 Hz …).</p>
+<h3>The steps</h3>
+<ol>
+<li><strong>Window</strong>: the longest steady stretch of the walk, at most 10 s, centered.</li>
+<li><strong>Downsample</strong> 100 → 50 Hz with a low-pass filter (<code>scipy.signal.decimate</code>) so Δt = 0.02 s.</li>
+<li><strong>Delay embedding</strong>: 16 sensors are not enough "state" to predict the next step of a rhythm, so each column holds the last 50 samples (1 s, about one stride) stacked: a 800 × T <em>Hankel matrix</em> H.</li>
+<li><strong>Exact DMD, rank 20</strong>: split H into X₁ (all columns but the last) and X₂ (all but the first), so X₂ ≈ A X₁. Instead of the huge A, compute its 20 × 20 version in the space of the top 20 SVD modes of X₁.</li>
+</ol>
+<div class="math">X₁ ≈ U<sub>r</sub> Σ<sub>r</sub> V<sub>r</sub>ᵀ&nbsp;(top r = 20 modes)<br>
+Ã = U<sub>r</sub>ᵀ X₂ V<sub>r</sub> Σ<sub>r</sub>⁻¹&nbsp;&nbsp;→&nbsp; eigenvalues λ, eigenvectors W<br>
+DMD modes Φ = X₂ V<sub>r</sub> Σ<sub>r</sub>⁻¹ W,&nbsp; frequency = Im(ln λ) / (2π Δt),&nbsp; growth rate = Re(ln λ) / Δt</div>
+<p class="file">src/features_math.py</p>
+<pre><code>def dmd(H, rank, dt):
+    X1, X2 = H[:, :-1], H[:, 1:]
+    U, s, Vt = svd(X1)
+    U, s, V = U[:, :rank], s[:rank], Vt[:rank].T
+    A_tilde = U.T @ X2 @ V / s                  <span class="c"># 20 x 20</span>
+    eigenvalues, W = np.linalg.eig(A_tilde)
+    modes = X2 @ V / s @ W
+    omega = np.log(eigenvalues) / dt
+    return {"frequencies": omega.imag / (2 * np.pi), "growth_rates": omega.real, ...}</code></pre>
+<h3>Features and findings</h3>
+<ul>
+<li><strong>Dominant frequency</strong>: the oscillating mode with the largest amplitude. It matched each person's stride frequency (median 0.94 Hz controls, 0.91 Hz PD).</li>
+<li><strong>Reconstruction error</strong>: rebuild the signal from the 20 modes and compare: ‖x − x̂‖ / ‖x‖. Median <span class="ctrl">0.27</span> vs <span class="pd">0.31</span>: PD walking is a little less well described by a clean repeating rhythm.</li>
+<li>Some eigenvalues came out slightly above |λ| = 1 (spurious growth). For reconstruction we put them back on the unit circle (<code>stabilize=True</code>) so the rebuilt signal does not blow up.</li>
+</ul>
+<div class="read"><div class="head">How to read it</div>
+<ul><li>Dominant frequency on its own did not differ much (P(PD higher) 0.44). After removing the effect of speed it did (0.67, p &lt; 0.001): at a given speed, people with PD take <em>more, shorter</em> strides. That is a known PD sign, found here only once speed was accounted for.</li></ul></div>
+
+<!-- 6 -->
+<h2 id="speed"><span class="num">6</span>The speed problem and how we adjusted for it</h2>
+<p>People with PD walk slower (median <span class="ctrl">1.25</span> vs <span class="pd">1.08 m/s</span>), and nearly every gait feature changes with speed. So a feature that "separates PD" might just be measuring speed. To check, for every feature:</p>
+<ol>
+<li>Fit <em>feature ≈ a + b·speed + study effect</em> using <strong>controls only</strong> (what is normal for that speed and study).</li>
+<li>Subtract that prediction from everyone: the <strong>residual</strong> says how unusual the feature is <em>for that person's speed</em>.</li>
+<li>Compare PD vs control residuals (Mann–Whitney test).</li>
+</ol>
+<p>We used <strong>Huber regression</strong> rather than ordinary least squares: it uses squared error for small residuals but absolute error for large ones, so one odd control cannot drag the line.</p>
+<pre><code>huber = HuberRegressor(alpha=0, max_iter=1000).fit(X_controls, feature_controls)
+residuals = feature_all - huber.predict(X_all)</code></pre>
+<div class="tablewrap"><table>
+<thead><tr><th>Feature, all studies</th><th class="num">Raw P(PD higher)</th><th class="num">Speed-adjusted</th><th class="num">adjusted p</th></tr></thead>
+<tbody>
+<tr><td>Energy in mode 1 (centered)</td><td class="num">0.75</td><td class="num">0.68</td><td class="num">&lt;0.001</td></tr>
+<tr><td>Effective modes (centered)</td><td class="num">0.27</td><td class="num">0.35</td><td class="num">0.001</td></tr>
+<tr><td>Heel–forefoot coupling</td><td class="num">0.64</td><td class="num">0.62</td><td class="num">0.007</td></tr>
+<tr><td>Swing CV</td><td class="num">0.64</td><td class="num">0.62</td><td class="num">0.007</td></tr>
+<tr><td>DMD dominant frequency</td><td class="num">0.44</td><td class="num">0.67</td><td class="num">&lt;0.001</td></tr>
+<tr><td>Mean edge weight</td><td class="num">0.62</td><td class="num">0.55</td><td class="num">0.32</td></tr>
+</tbody></table></div>
+<div class="read"><div class="head">How to read it</div>
+<ul><li>A value moving toward 0.5 after adjustment means part of the effect was speed. Mean edge weight lost its effect (0.62 → 0.55, not significant), so it was mostly speed.</li>
+<li>Mode-1 energy, effective modes, heel–forefoot coupling and swing CV kept a clear effect: these carry PD information beyond speed. Those, plus DMD features, became the "gait" feature set.</li>
+<li>This is a descriptive comparison, not a held-out test: the Huber line was fitted on all controls, and those same controls are then compared with PD. (The COP step, section 12.7, does the adjustment inside each training fold.)</li></ul></div>
+
+<!-- 7 -->
+<h2 id="eval"><span class="num">7</span>Evaluating fairly: subject-wise cross-validation</h2>
+<h3>Why ordinary train/test splits are wrong here</h3>
+<p>If strides of the same person end up in both the training and test set, the model can recognise <em>the person</em> instead of the disease, and the score looks far better than it is (<strong>leakage</strong>). So every split is made <strong>by subject</strong>: all of a person's data is either in training or in testing.</p>
+<h3>Repeated stratified group k-fold</h3>
+<ul>
+<li><strong>5 folds</strong>: split the 165 people into 5 groups of about 33; train on 4, test on the fifth; rotate so everyone is tested once.</li>
+<li><strong>Stratified</strong>: each fold keeps roughly the same PD/control ratio as the whole dataset.</li>
+<li><strong>Repeated 10 times</strong> with different shuffles (seeds 0–9): one 5-fold split depends on luck of who lands together; 10 repeats average that out. That gives 50 train/test runs per model.</li>
+</ul>
+<p class="file">src/evaluate.py</p>
+<pre><code>for repeat in range(10):
+    splitter = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=seed + repeat)
+    for fold, (train, test) in enumerate(splitter.split(X, y, groups=subject_ids)):
+        model = clone(model_template).fit(X.iloc[train], y[train])
+        scores = model.predict_proba(X.iloc[test])[:, 1]      <span class="c"># P(PD) for unseen people</span></code></pre>
+<p>Using the same seeds for every model means every model sees <em>exactly</em> the same splits, so differences between models are <strong>paired</strong> comparisons.</p>
+<h3>Nested tuning</h3>
+<p>Models have settings (<strong>hyperparameters</strong>) such as the regularisation strength C. Choosing C by looking at the test fold would leak. So inside each training set we run a second, inner 5-fold subject-wise CV (<code>GridSearchCV</code> with groups) to pick C, and only then score the outer test fold. This is <strong>nested cross-validation</strong>.</p>
+<pre><code>inner_cv = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=seed)
+logistic = Pipeline([("impute", SimpleImputer(strategy="median")),
+                     ("scale", StandardScaler()),
+                     ("model", LogisticRegression(class_weight="balanced", max_iter=5000))])
+search = GridSearchCV(logistic, {"model__C": np.logspace(-3, 2, 11)}, scoring="roc_auc", cv=inner_cv)
+search.fit(X_train, y_train, groups=subjects_train)       <span class="c"># groups keep the inner splits subject-wise</span></code></pre>
+<p>The <strong>pipeline</strong> matters: the imputer (fills missing values with the median) and the scaler (mean 0, SD 1) are fitted on training data only, inside every split.</p>
+
+<!-- 8 -->
+<h2 id="ml"><span class="num">8</span>Classical machine learning (Step 7)</h2>
+<h3>The two models</h3>
+<dl class="terms">
+<dt>Logistic regression</dt>
+<dd>Adds the features with weights and squashes the sum to a probability: P(PD) = 1 / (1 + e<sup>−(b + w₁x₁ + … + w<sub>k</sub>x<sub>k</sub>)</sup>). The weights are fitted by maximising the likelihood, with an L2 penalty (strength 1/C) that keeps them small and stable. <code>class_weight="balanced"</code> stops the model from favouring the larger PD group.</dd>
+<dt>Random forest</dt>
+<dd>300 decision trees, each grown on a bootstrap sample of people and a random subset of features; the forest averages their votes. Can capture non-linear rules and interactions. We tuned tree depth (2, 3, 5, unlimited).</dd>
+</dl>
+<h3>Four feature sets</h3>
+<ol>
+<li>speed only</li>
+<li>speed + age + sex</li>
+<li>gait: mode-1 energy, effective modes, DMD dominant frequency, heel–forefoot coupling, swing CV, DMD reconstruction error</li>
+<li>gait + speed + age + sex</li>
+</ol>
+<div class="tablewrap"><table>
+<thead><tr><th>Feature set</th><th class="num">Logistic AUC</th><th class="num">Random forest AUC</th></tr></thead>
+<tbody>
+<tr><td>1 speed</td><td class="num">0.771</td><td class="num">0.737</td></tr>
+<tr><td>2 speed + age + sex</td><td class="num">0.749</td><td class="num">0.718</td></tr>
+<tr><td>3 gait</td><td class="num">0.727</td><td class="num">0.728</td></tr>
+<tr><td>4 gait + speed + age + sex</td><td class="num">0.754</td><td class="num">0.757</td></tr>
+</tbody></table></div>
+<p>Mean over the 10 repeats; the spread across repeats was about ±0.01–0.02.</p>
+<h3>Why we kept logistic regression</h3>
+<div class="why"><div class="head">Reasons</div>
+<ul>
+<li><strong>It was as good or better.</strong> The forest never beat logistic regression by more than 0.003, and lost by 0.03 on speed alone.</li>
+<li><strong>Small data.</strong> With 165 people, flexible models overfit: a forest can memorise quirks of the training subjects. A linear model with a penalty has few parameters (one weight per feature).</li>
+<li><strong>Interpretable.</strong> Each weight says which direction a feature pushes the prediction.</li>
+<li><strong>Tiny to deploy.</strong> 6 weights and an intercept run on any microcontroller; a forest of 300 trees does not.</li>
+</ul></div>
+<h3>Permutation importance: what the model uses</h3>
+<p>Take the trained model, shuffle one feature's values among the test people (breaking its link to the label), and see how much the test AUC drops. A big drop means the model relies on that feature.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Feature (set 4, logistic)</th><th class="num">Mean AUC drop</th></tr></thead>
+<tbody>
+<tr><td>speed</td><td class="num">0.083</td></tr>
+<tr><td>energy in mode 1</td><td class="num">0.022</td></tr>
+<tr><td>DMD dominant frequency</td><td class="num">0.014</td></tr>
+<tr><td>effective modes</td><td class="num">0.013</td></tr>
+<tr><td>DMD reconstruction error</td><td class="num">0.010</td></tr>
+<tr><td>heel–forefoot coupling, age, sex, swing CV</td><td class="num">≤ 0.004</td></tr>
+</tbody></table></div>
+<p>Speed carries most of the signal. Correlated features share credit (shuffling one leaves its partner), so a small drop does not mean a feature is useless, only that something else can stand in for it.</p>
+
+<!-- 9 -->
+<h2 id="loso"><span class="num">9</span>Leave-one-study-out: does it work in a new lab?</h2>
+<p>Cross-validation mixes the three studies in every fold. But the studies differ (treadmill vs overground, different equipment and patient groups), so a model could partly learn "which study" instead of "which disease". The harder test: <strong>train on two studies and test on the third</strong>, for each of the three. This is <strong>leave-one-study-out</strong> (a leave-one-group-out split, with the study as the group).</p>
+<p class="file">src/evaluate.py</p>
+<pre><code>def leave_one_group_out(model, X, y, groups, test_groups):
+    for held_out in np.unique(test_groups):            <span class="c"># "Ga", "Ju", "Si"</span>
+        test  = np.flatnonzero(test_groups == held_out)
+        train = np.flatnonzero(test_groups != held_out)
+        scores, _ = _fit_and_predict(model, X, y, groups, train, test, 0, 0)</code></pre>
+<div class="tablewrap"><table>
+<thead><tr><th>Logistic regression</th><th class="num">Test on Ga</th><th class="num">Test on Ju</th><th class="num">Test on Si</th></tr></thead>
+<tbody>
+<tr><td>speed</td><td class="num">0.787</td><td class="num">0.829</td><td class="num">0.721</td></tr>
+<tr><td>gait</td><td class="num">0.759</td><td class="num">0.779</td><td class="num">0.619</td></tr>
+<tr><td>gait + speed + age + sex</td><td class="num">0.797</td><td class="num">0.817</td><td class="num">0.674</td></tr>
+</tbody></table></div>
+<div class="read"><div class="head">How to read it</div>
+<ul><li>Scores close to the cross-validated ones mean the model transfers to a new study. Ga and Ju transfer well.</li>
+<li>Si (treadmill) is consistently the hardest: a treadmill fixes the speed and regularises the rhythm, which hides much of the PD difference. A model meant for real-world use should be checked on data collected the way it will be used.</li>
+<li>Each number is one train/test run on 47–64 people, so it is noisier than the repeated-CV mean.</li></ul></div>
+
+<!-- 10 -->
+<h2 id="selection"><span class="num">10</span>Feature and sensor selection: from 16 sensors to 6</h2>
+<p>A cheap insole should have few sensors. Two ways to choose them, which answer different questions.</p>
+<h3>10.1 Unsupervised: QR pivoting (which sensors best reconstruct the others?)</h3>
+<p>Take the top r SVD modes U<sub>r</sub> (16 × r). If we measure only sensors S, we can estimate the mode amplitudes by least squares from those rows and then rebuild all 16 sensors:</p>
+<div class="math">a = (U<sub>r</sub>[S])⁺ x[S],&nbsp;&nbsp; x̂ = U<sub>r</sub> a
+<span class="tag">⁺ is the pseudo-inverse. The rebuild is good when the rows U<sub>r</sub>[S] are well-conditioned (not nearly redundant).</span></div>
+<p><strong>QR decomposition with column pivoting</strong> on U<sub>r</sub>ᵀ picks sensors greedily: first the sensor with the largest mode loadings, then the one that adds most of what the chosen sensors do not already explain, and so on. It is the standard method in sparse sensor placement.</p>
+<pre><code>from scipy.linalg import qr
+_, _, pivots = qr(modes.T, pivoting=True, mode="economic")
+sensors = pivots[:n_sensors]                  <span class="c"># e.g. L5, L4, R8, L8, L3, R2 for 6</span></code></pre>
+<h3>10.2 Supervised: greedy forward selection by AUC</h3>
+<p>Start from the best pair of sensors (scored by inner-CV AUC of the 3 gait features computed from that subset), then add whichever sensor raises the AUC most, up to 8. Crucially, this whole search runs <strong>inside each outer training fold</strong> (nested), so the chosen sensors never see the test people. A selection made on all data and then cross-validated would be optimistic.</p>
+<h3>10.3 Results</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Sensor set</th><th class="num">Sensors</th><th class="num">AUC gait</th><th class="num">AUC gait + speed</th></tr></thead>
+<tbody>
+<tr><td>All 16</td><td class="num">16</td><td class="num">0.729</td><td class="num">0.770</td></tr>
+<tr><td>QR pivoting (L5, L4, R8, L8, L3, R2)</td><td class="num">6</td><td class="num">0.592</td><td class="num">0.749</td></tr>
+<tr><td>Greedy by AUC (nested; differs per fold)</td><td class="num">6</td><td class="num">0.708</td><td class="num">0.808</td></tr>
+<tr class="hl"><td>Anatomical: heel, midfoot, forefoot per foot (L1, L4, L7, R1, R4, R7)</td><td class="num">6</td><td class="num">0.753</td><td class="num">0.794</td></tr>
+</tbody></table></div>
+<div class="why"><div class="head">Why we chose the anatomical six</div>
+<ul>
+<li><strong>QR is the wrong objective.</strong> It picks sensors that rebuild the signal well (its reconstruction error was the lowest), but the PD signal lives in the heel-to-forefoot relationship, which those picks miss. Good reconstruction ≠ good classification.</li>
+<li><strong>Anatomical matches the supervised search</strong> (confidence intervals overlap), while being one fixed set rather than a different set in every fold.</li>
+<li><strong>Explainable and buildable</strong>: one sensor under the heel, the midfoot and the forefoot of each foot, which is how commercial pressure insoles are laid out.</li>
+<li>It met the success criterion stated <em>before</em> the run: mean AUC at least 90% of the 16-sensor AUC, and higher than the median of 100 random 6-sensor sets. Its ratio to all 16 sensors was 1.05 (CI 0.95–1.15).</li>
+</ul></div>
+<div class="read"><div class="head">Caveats</div>
+<ul><li>The QR sets were computed from the pooled data of all 72 controls, including controls that later sit in test folds. This can only flatter QR, which still lost, so the conclusion stands, but the QR AUCs are slightly optimistic.</li>
+<li>The anatomical set was one of several candidates compared on the same cross-validation before it was chosen, so its 0.753, and the insole-only numbers built on it, may be slightly optimistic.</li></ul></div>
+
+<!-- 11 -->
+<h2 id="dl"><span class="num">11</span>Deep learning: what we tried and why it did not win</h2>
+<h3>11.1 The convolutional autoencoder (Step 9)</h3>
+<p>An <strong>autoencoder</strong> is a neural network trained to copy its input through a narrow middle layer (the bottleneck). If it is trained only on healthy strides, it learns to rebuild healthy shapes well; a stride it rebuilds badly is "unlike healthy walking". The idea was an anomaly detector that needs no PD labels.</p>
+<p class="file">src/models.py</p>
+<pre><code>class GaitAutoencoder(nn.Module):              <span class="c"># input: 6 sensors x 100 points, body-weight units</span>
+    def __init__(self, n_channels=6, hidden=16, latent=4):
+        self.encoder = nn.Sequential(
+            nn.Conv1d(6, 16, 5, stride=2, padding=2), nn.ReLU(),     <span class="c"># 100 -&gt; 50 steps</span>
+            nn.Conv1d(16, 16, 5, stride=2, padding=2), nn.ReLU(),    <span class="c"># 50 -&gt; 25</span>
+            nn.Conv1d(16, 4, 5, padding=2))                          <span class="c"># bottleneck: 4 x 25 = 100 numbers</span>
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose1d(4, 16, 4, stride=2, padding=1), nn.ReLU(),   <span class="c"># 25 -&gt; 50</span>
+            nn.ConvTranspose1d(16, 16, 4, stride=2, padding=1), nn.ReLU(),  <span class="c"># 50 -&gt; 100</span>
+            nn.Conv1d(16, 6, 5, padding=2))</code></pre>
+<ul>
+<li><strong>Conv1d</strong>: slides a small filter (5 points wide) along the stride, so the same shape detector works anywhere in the gait cycle. Stride 2 halves the length.</li>
+<li><strong>Training</strong>: Adam optimiser, mean squared error between input and output, on training-fold <em>control</em> strides only; 15% of control subjects held out for <strong>early stopping</strong> (stop when that validation loss has not improved for 30 epochs, keep the best epoch).</li>
+<li><strong>Score</strong>: each person's median reconstruction error over their strides. Higher = less healthy-looking.</li>
+<li>About 3,900 parameters, 170,000 multiply-adds per stride: small enough for a microcontroller.</li>
+</ul>
+<p>We compared it with two simple baselines that use the same idea: <strong>distance to the mean control stride</strong>, and <strong>PCA reconstruction error</strong> (a linear autoencoder with 10 components).</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Deviation score</th><th class="num">AUC</th><th class="num">95% CI</th></tr></thead>
+<tbody>
+<tr><td>Distance to the mean control stride</td><td class="num">0.715</td><td class="num">0.63–0.79</td></tr>
+<tr><td>PCA reconstruction (10 components)</td><td class="num">0.696</td><td class="num">0.62–0.78</td></tr>
+<tr><td>Conv autoencoder (float)</td><td class="num">0.688</td><td class="num">0.62–0.78</td></tr>
+<tr><td>Conv autoencoder, 8-bit (int8) simulation</td><td class="num">0.559</td><td class="num">0.48–0.65</td></tr>
+</tbody></table></div>
+<h3>Why it did not perform well</h3>
+<div class="why"><div class="head">Reasons</div>
+<ul>
+<li><strong>The task does not ask about PD.</strong> An autoencoder is trained to rebuild strides, not to separate groups. "Unusual" can mean heavier, faster, a different shoe or a different study, not only PD. A supervised model is told what difference to look for.</li>
+<li><strong>Too little data for the extra flexibility.</strong> Each fold trains on about 50 control <em>people</em>. Strides number in thousands, but strides of one person are near-copies, so the real sample is the people. The network has no room to learn more than the simple mean shape does, and the mean-distance baseline already captures that.</li>
+<li><strong>The PD difference is mostly a simple shift</strong> (slower, flatter heel-to-toe loading), which a linear method describes as well as a non-linear one.</li>
+<li><strong>int8 collapsed (0.69 → 0.56)</strong> because the differences between people are small compared with the rounding step of 8-bit activations: 256 levels across the whole activation range wash out a reconstruction error that is itself a small difference. The linear insole model later kept full accuracy at int16 (65,536 levels), see section 12.</li>
+</ul></div>
+<h3>11.2 The CNN speed and TUG regressor (Step 10)</h3>
+<p>A small CNN read one stride (6 × 100) plus its log duration and predicted walking speed and log TUG. Compared with <strong>ridge regression</strong> on the same 601 inputs:</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Speed estimate (all studies)</th><th class="num">MAE (m/s)</th><th class="num">R²</th><th class="num">Spearman ρ</th></tr></thead>
+<tbody>
+<tr><td>Linear regression on cadence (baseline)</td><td class="num">0.150</td><td class="num">0.21</td><td class="num">0.40</td></tr>
+<tr><td>CNN on strides</td><td class="num">0.113</td><td class="num">0.53</td><td class="num">0.69</td></tr>
+<tr class="hl"><td>Ridge on strides</td><td class="num">0.098</td><td class="num">0.67</td><td class="num">0.78</td></tr>
+</tbody></table></div>
+<p>Same reason as above: the labels are per <em>person</em> (one measured speed each, about 130 people per training fold), so the effective training set is small. The strides are already aligned to the gait cycle by resampling, which removes the main thing convolutions are good at (finding a pattern wherever it occurs). Ridge, a linear model with a penalty, was more accurate, more stable across repeats (SD 0.002 vs 0.007 in MAE) and 600 numbers to store. So the final model uses ridge.</p>
+
+<!-- 12 -->
+<h2 id="insole"><span class="num">12</span>The final classifier: insole-only model</h2>
+<p>Goal: a model that needs <strong>nothing but the 6 insole sensors</strong>, with no stopwatch, scale or clinic visit, and that fits on a microcontroller. It was built in two versions: forces divided by body weight (AUC 0.823, needs the weight) and raw forces (0.812, sensors only). The Pico runs the raw version.</p>
+<h3>12.1 Stage 1: per-stride estimates</h3>
+<p>Each steady stride gives a 601-number input: 600 resampled forces (6 sensors × 100 points) + log stride duration. Two <strong>ridge regressions</strong> map that to walking speed and log TUG:</p>
+<div class="math">ŷ = w · f + b,&nbsp; fitted by minimising&nbsp; Σ (y − w·f − b)² + α ‖w‖²
+<span class="tag">The penalty α‖w‖² shrinks the 601 weights. With 601 inputs and about 130 people, an unpenalised fit would memorise noise. α is chosen from 0.1 … 10,000 by an inner GroupKFold (strides of one person stay together).</span></div>
+<pre><code>def ridge_search():
+    return GridSearchCV(Pipeline([("scale", StandardScaler()), ("ridge", Ridge())]),
+                        {"ridge__alpha": np.logspace(-1, 4, 6)},
+                        cv=GroupKFold(n_splits=3), scoring="neg_mean_squared_error")</code></pre>
+<p>Every stride gets its own estimate; the person's value is the <strong>median over their steady strides</strong> (the median ignores the odd bad stride). TUG is log-transformed because it is skewed (a few people take 20+ s). TUG is used only as a proxy for mobility and fall risk; no falls were recorded in this dataset.</p>
+<p><strong>Template deviation</strong>: the average healthy stride (mean of training-control strides) is the template; a person's score is the median over strides of the mean squared difference from it.</p>
+<h3>12.2 Stage 2: three gait features from the six sensors</h3>
+<p>From the 6 × 6 covariance of the sensor signals over the steady strides: <strong>energy in mode 1</strong> and <strong>effective number of modes</strong> (section 3, from the eigenvalues of the covariance), and <strong>heel–forefoot coupling</strong> (section 4, mean |r| of the pairs heel–midfoot and heel–forefoot of each foot).</p>
+<h3>12.3 Stage 3: logistic regression on 6 features</h3>
+<p>est. speed, est. log TUG, template deviation, mode-1 energy, effective modes, heel–forefoot coupling → nested logistic regression (section 7) → P(PD).</p>
+<h3>12.4 Cross-fitting: the step that keeps it honest</h3>
+<p>The classifier is trained on estimated speeds. If those estimates came from a ridge model that had seen the same people, they would be too accurate on training people and the classifier would learn to trust them too much. So inside each outer training fold, a second 5-fold split produces estimates for each training person from ridge models that did <em>not</em> see them (<strong>cross-fitting</strong>). Test people get estimates from a ridge model fitted on all training people.</p>
+<p class="file">src/run_insole_regression.py</p>
+<pre><code>def insole_estimates(X, F, stride_subject, targets, is_control, train, test, seed):
+    inner = GroupKFold(n_splits=5, shuffle=True, random_state=seed)
+    for inner_train, inner_test in inner.split(train, groups=train):
+        fit, score = train[inner_train], train[inner_test]
+        est.loc[score, "est_speed"]    = ridge_fit_predict(F, stride_subject, speed, fit, score)
+        est.loc[score, "est_log_tug"]  = ridge_fit_predict(F, stride_subject, log_tug, fit, score)
+        est.loc[score, "template_dev"] = template_scores(X, stride_subject, controls_in(fit), score)
+    est.loc[test, "est_speed"] = ridge_fit_predict(F, stride_subject, speed, train, test)   <span class="c"># etc.</span></code></pre>
+<h3>12.5 Results</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Feature set (logistic)</th><th class="num">AUC</th><th class="num">95% CI</th><th class="num">Ga</th><th class="num">Ju</th><th class="num">Si</th></tr></thead>
+<tbody>
+<tr><td>Measured speed (not insole-only)</td><td class="num">0.771</td><td class="num">0.70–0.84</td><td class="num">0.78</td><td class="num">0.83</td><td class="num">0.72</td></tr>
+<tr><td>Estimated speed</td><td class="num">0.799</td><td class="num">0.74–0.87</td><td class="num">0.85</td><td class="num">0.78</td><td class="num">0.78</td></tr>
+<tr class="hl"><td>Est. speed + est. TUG + template + 3 gait features</td><td class="num">0.823</td><td class="num">0.78–0.90</td><td class="num">0.89</td><td class="num">0.77</td><td class="num">0.81</td></tr>
+</tbody></table></div>
+<p>These rows use forces divided by body weight. With raw forces (no weight needed), the full model gives 0.812.</p>
+<p>The estimated speed scores higher than the <em>measured</em> speed (0.799 vs 0.771), but that pair was not tested for a difference. The tested comparison is the full insole model against measured speed: +0.070 (95% CI +0.001 to +0.136) with body weight, and +0.058 (−0.010 to +0.127, so not clearly different) without. A plausible reason the estimate helps: it is built from the force shape, so it carries how the person walks, not only how fast.</p>
+<p><strong>Group permutation importance</strong> (shuffle a whole group of related features together, so partners cannot stand in), for the body-weight model: speed + TUG estimates 0.134 AUC drop, the three gait features 0.081, template deviation 0.013. Both the speed-like information and the loading pattern matter.</p>
+<h3>12.6 Storage and the microcontroller</h3>
+<p>Storage was tested on the body-weight model (table below); the Pico runs the weight-free version.</p>
+<p>The scaler is folded into the weights (w/σ, with the intercept adjusted for the mean), so the device only multiplies and adds. The three 600-value arrays are stored as <strong>int16</strong> (whole numbers −32,767…32,767) with one scale factor each: real weight = stored integer × scale. 17 other numbers stay as floats.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Precision</th><th class="num">Model size</th><th class="num">AUC</th></tr></thead>
+<tbody>
+<tr><td>float64</td><td class="num">14.5 kB</td><td class="num">0.823</td></tr>
+<tr><td>float32</td><td class="num">7.3 kB</td><td class="num">0.823</td></tr>
+<tr><td>int16</td><td class="num">3.6 kB</td><td class="num">0.823</td></tr>
+</tbody></table></div>
+<p>For the Pico, the model was retrained on features computed with the device's exact steps (AUC 0.814 ± 0.021), written to C, and checked against Python on all 165 recordings: identical stride counts, probabilities equal to 0.000002 in the Pico's float precision.</p>
+<h3>12.7 Centre of pressure (Step 11): the strongest features, but they need 16 sensors</h3>
+<p>Following Sifat et al. 2026 (arXiv:2609.22956), each stance phase is turned into a trace of the <strong>anterior–posterior centre of pressure</strong>: the force-weighted average of the sensors' heel-to-toe positions, from 0 (heel) to 1 (toe). The trace is resampled to 0–100% of stance, and AP-COP10 takes its median over stances in 5 windows (5–15%, 25–35%, 45–55%, 65–75%, 85–95%), giving the position (mean of both feet) and the left–right asymmetry in each window: 10 features.</p>
+<div class="math">q(t) = Σ<sub>i</sub> F<sub>i</sub>(t) y<sub>i</sub> / Σ<sub>i</sub> F<sub>i</sub>(t)
+<span class="tag">F<sub>i</sub>: force on sensor i; y<sub>i</sub>: its heel-to-toe position, scaled from 0 (heel) to 1 (toe).</span></div>
+<div class="tablewrap"><table>
+<thead><tr><th>Logistic, same splits</th><th class="num">AUC</th><th class="num">Ga</th><th class="num">Ju</th><th class="num">Si</th></tr></thead>
+<tbody>
+<tr><td>Measured speed</td><td class="num">0.771</td><td class="num">0.78</td><td class="num">0.83</td><td class="num">0.72</td></tr>
+<tr class="hl"><td>AP-COP10, 16 sensors</td><td class="num">0.869</td><td class="num">0.74</td><td class="num">0.91</td><td class="num">0.91</td></tr>
+<tr><td>AP-COP10 + measured speed</td><td class="num">0.890</td><td class="num">0.83</td><td class="num">0.93</td><td class="num">0.90</td></tr>
+<tr><td>AP-COP10 from 6 sensors (exploratory)</td><td class="num">0.844</td><td class="num">0.71</td><td class="num">0.90</td><td class="num">0.87</td></tr>
+</tbody></table></div>
+<p>The paper reported 0.894 (95% CI 0.843–0.937) with elastic-net stability selection and 20 × 5 CV. With our logistic model and splits, the pooled value is 0.884 (CI 0.83–0.93) and the mean over repeats 0.869. COP is the strongest single feature family here, and unlike most gait features it works well on the treadmill study (Si). The speed adjustment for these features was fitted on training-fold controls only. The 6-sensor version was explored after the main analysis, so it is labelled exploratory.</p>
+
+<!-- 13 -->
+<h2 id="reading"><span class="num">13</span>How to read the results</h2>
+<dl class="terms">
+<dt>AUC</dt><dd>Area under the ROC curve. The probability that the model gives a random PD person a higher score than a random control. 0.5 = chance, 0.7 = fair, 0.8 = good, 0.9 = excellent. It does not depend on a threshold.</dd>
+<dt>Sensitivity</dt><dd>Of the people with PD, the fraction the model flags (at probability ≥ 0.5).</dd>
+<dt>Specificity</dt><dd>Of the controls, the fraction the model correctly calls typical.</dd>
+<dt>Balanced accuracy</dt><dd>(sensitivity + specificity) / 2. Unlike plain accuracy, it is not inflated by the larger PD group.</dd>
+<dt>Mean ± SD over repeats</dt><dd>How much the AUC moves when people are reshuffled into different folds (e.g. 0.823 ± 0.015). This is split luck, not how uncertain the true AUC is.</dd>
+<dt>95% CI (bootstrap)</dt><dd>Resample the people with replacement 2,000 times (PD and controls separately) and recompute the AUC; the middle 95% of those values. This is the uncertainty from having only these 165 people. With 165 people, intervals are about ±0.06, so two models less than about 0.05 apart are usually not distinguishable.</dd>
+<dt>Paired difference</dt><dd>When two models use the same splits and same bootstrap samples, look at the CI of their <em>difference</em>; if it excludes 0, the difference is real.</dd>
+<dt>P(PD higher)</dt><dd>The rank effect size from the Mann–Whitney test: the chance a random PD person has a higher value than a random control. Its p-value says whether the difference could be chance.</dd>
+<dt>Permutation importance</dt><dd>AUC drop when a feature (or group) is shuffled on held-out people. Larger = the model relies on it more.</dd>
+<dt>MAE, R², Spearman ρ</dt><dd>For regressions: MAE is the average error in the target's units (0.098 m/s); R² is the fraction of the spread between people explained (0.67); Spearman ρ is how well the estimates rank people (0.78).</dd>
+<dt>Per study and leave-one-study-out</dt><dd>A model that works only when all three studies are mixed may be learning the study. Look for similar numbers per study, and for leave-one-study-out scores close to the CV scores.</dd>
+<dt>Mean over repeats vs pooled</dt><dd>Mean over repeats: compute the AUC in each of the 10 repeats, then average. Pooled: average each person's score over the repeats first, then compute one AUC (the bootstrap uses this). Pooled is usually a little higher. Compare like with like.</dd>
+<dt>In-sample AUC</dt><dd>A model scored on the people it was trained on (0.850 for the final model). Always optimistic; never report it as performance.</dd>
+</dl>
+
+<!-- 14 -->
+<h2 id="limits"><span class="num">14</span>Limits to state in the report</h2>
+<ul>
+<li><strong>165 people</strong> in three lab studies; the confidence intervals are wide (about ±0.06 in AUC).</li>
+<li><strong>Study and protocol are mixed with the label</strong> (treadmill in Si), so per-study and leave-one-study-out results matter as much as the pooled AUC.</li>
+<li><strong>Speed dominates.</strong> Much of what separates the groups is slower walking, which also happens with age, pain or other conditions.</li>
+<li><strong>TUG is a proxy</strong>; no falls were recorded.</li>
+<li><strong>Not a diagnostic tool.</strong> The model describes how Parkinson-like a walk looks in this dataset. A clinical tool would need new, prospectively collected data and comparison with other conditions.</li>
+</ul>
+
+<footer>Built from the project code (<code>src/</code>, <code>firmware/</code>) and the result tables in <code>results/metrics/</code>. All AUCs are subject-wise cross-validated (5 folds × 10 repeats) unless marked otherwise.</footer>
+</main>
+</div>
